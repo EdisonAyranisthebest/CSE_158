@@ -128,20 +128,15 @@ def Q4(dataset):
 
 # ---------- Q5 ----------
 def featureQ5(datum):
-    s = str(datum.get('reviewText') or datum.get('review_text') or datum.get('text') or '')
-    return np.array([float(len(s))], dtype=float)
-
-def Q5(dataset, feat_func):
     X, y = [], []
 
     for d in dataset or []:
-        # label strictly from 'review/overall'
+        # label strictly from review/overall
         rating = None
         if 'review/overall' in d:
             rating = d['review/overall']
         elif isinstance(d.get('review'), dict) and 'overall' in d['review']:
             rating = d['review']['overall']
-
         if rating is None:
             continue
         try:
@@ -158,7 +153,7 @@ def Q5(dataset, feat_func):
     X = np.vstack(X)
     y = np.array(y, dtype=int)
 
-    # Only allowed param per spec:
+    # Only allowed parameter per spec:
     clf = LogisticRegression(class_weight='balanced')
     clf.fit(X, y)
 
@@ -167,8 +162,8 @@ def Q5(dataset, feat_func):
     TN = int(((yp == 0) & (y == 0)).sum())
     FP = int(((yp == 1) & (y == 0)).sum())
     FN = int(((yp == 0) & (y == 1)).sum())
-    P = max(int((y == 1).sum()), 1)
-    N = max(int((y == 0).sum()), 1)
+    P  = max(int((y == 1).sum()), 1)
+    N  = max(int((y == 0).sum()), 1)
     BER = 0.5 * ((FN / P) + (FP / N))
     return TP, TN, FP, FN, float(BER)
 # ---------- Q6 ----------
@@ -199,13 +194,12 @@ def Q6(dataset):
 
     clf = LogisticRegression(class_weight='balanced')
     clf.fit(X, y)
-    # score = P(y=1 | x)
     scores = clf.predict_proba(X)[:, 1] if hasattr(clf, 'predict_proba') else clf.decision_function(X)
 
     order = np.argsort(-scores)
     y_sorted = y[order]
 
-    Ks = [1, 100, 1000, 10000]
+    Ks = [1, 10, 100, 1000]
     precs = []
     for K in Ks:
         k = min(K, len(y_sorted))
