@@ -129,63 +129,27 @@ def Q4(dataset):
 # ---------- Q5 ----------
 def featureQ5(datum):
     s = str(datum.get('reviewText') or datum.get('review_text') or datum.get('text') or '')
-    return np.array([1.0, float(len(s)), float(s.count('!'))], dtype=float)
+    return np.array([float(len(s))], dtype=float)
 
 def Q5(dataset, feat_func):
     X, y = [], []
-    label_keys = [
-        'label','y','target','sentiment','polarity','class',
-        'truth','liked','recommended','is_positive'
-    ]
-    rating_keys = [
-        'rating','overall','stars','review_overall','review/overall','beer/overall'
-    ]
 
     for d in dataset or []:
-        lab = None
-        for k in label_keys:
-            if k in d:
-                lab = d[k]
-                break
-        if lab is None:
-            rating = None
-            for rk in rating_keys:
-                if rk in d:
-                    rating = d[rk]
-                    break
-            if rating is not None:
-                try:
-                    lab = 1 if float(rating) >= 4.0 else 0
-                except Exception:
-                    lab = None
-        if lab is None:
+        # label strictly from 'review/overall'
+        rating = None
+        if 'review/overall' in d:
+            rating = d['review/overall']
+        elif isinstance(d.get('review'), dict) and 'overall' in d['review']:
+            rating = d['review']['overall']
+
+        if rating is None:
+            continue
+        try:
+            lab = 1 if float(rating) >= 4.0 else 0
+        except Exception:
             continue
 
-        # normalize 0/1
-        if isinstance(lab, str):
-            s = lab.strip().lower()
-            if s in ('1','pos','positive','true','yes','y','t','recommended','recommends'):
-                lab = 1
-            elif s in ('0','neg','negative','false','no','n','f','not_recommended','not recommended'):
-                lab = 0
-            else:
-                try:
-                    lab = 1 if float(s) >= 4.0 else 0
-                except Exception:
-                    continue
-        elif isinstance(lab, bool):
-            lab = int(lab)
-        elif isinstance(lab, (int, float)):
-            if lab in (-1, 1):
-                lab = 1 if lab > 0 else 0
-            elif lab in (0, 1):
-                lab = int(lab)
-            else:
-                lab = 1 if float(lab) >= 4.0 else 0
-        else:
-            continue
-
-        y.append(int(lab))
+        y.append(lab)
         X.append(feat_func(d))
 
     if not X:
@@ -194,97 +158,62 @@ def Q5(dataset, feat_func):
     X = np.vstack(X)
     y = np.array(y, dtype=int)
 
-    # ✅ Only param allowed: class_weight if question says so
+    # Only allowed param per spec:
     clf = LogisticRegression(class_weight='balanced')
     clf.fit(X, y)
-    yp = clf.predict(X)
 
+    yp = clf.predict(X)
     TP = int(((yp == 1) & (y == 1)).sum())
     TN = int(((yp == 0) & (y == 0)).sum())
     FP = int(((yp == 1) & (y == 0)).sum())
     FN = int(((yp == 0) & (y == 1)).sum())
-    P  = max(int((y == 1).sum()), 1)
-    N  = max(int((y == 0).sum()), 1)
+    P = max(int((y == 1).sum()), 1)
+    N = max(int((y == 0).sum()), 1)
     BER = 0.5 * ((FN / P) + (FP / N))
     return TP, TN, FP, FN, float(BER)
 # ---------- Q6 ----------
 def Q6(dataset):
     X, y = [], []
-    label_keys = [
-        'label','y','target','sentiment','polarity','class',
-        'truth','liked','recommended','is_positive'
-    ]
-    rating_keys = [
-        'rating','overall','stars','review_overall','review/overall','beer/overall'
-    ]
 
     for d in dataset or []:
-        lab = None
-        for k in label_keys:
-            if k in d:
-                lab = d[k]
-                break
-        if lab is None:
-            rating = None
-            for rk in rating_keys:
-                if rk in d:
-                    rating = d[rk]
-                    break
-            if rating is not None:
-                try:
-                    lab = 1 if float(rating) >= 4.0 else 0
-                except Exception:
-                    lab = None
-        if lab is None:
+        rating = None
+        if 'review/overall' in d:
+            rating = d['review/overall']
+        elif isinstance(d.get('review'), dict) and 'overall' in d['review']:
+            rating = d['review']['overall']
+        if rating is None:
+            continue
+        try:
+            lab = 1 if float(rating) >= 4.0 else 0
+        except Exception:
             continue
 
-        if isinstance(lab, str):
-            s = lab.strip().lower()
-            if s in ('1','pos','positive','true','yes','y','t','recommended','recommends'):
-                lab = 1
-            elif s in ('0','neg','negative','false','no','n','f','not_recommended','not recommended'):
-                lab = 0
-            else:
-                try:
-                    lab = 1 if float(s) >= 4.0 else 0
-                except Exception:
-                    continue
-        elif isinstance(lab, bool):
-            lab = int(lab)
-        elif isinstance(lab, (int, float)):
-            if lab in (-1, 1):
-                lab = 1 if lab > 0 else 0
-            elif lab in (0, 1):
-                lab = int(lab)
-            else:
-                lab = 1 if float(lab) >= 4.0 else 0
-        else:
-            continue
-
-        y.append(int(lab))
+        y.append(lab)
         X.append(featureQ5(d))
 
     if not X:
-        return []
+        return [0.0, 0.0, 0.0, 0.0]
 
     X = np.vstack(X)
     y = np.array(y, dtype=int)
 
-    # Same training settings as Q5
-    clf = LogisticRegression(max_iter=1000, C=1e6, fit_intercept=False, solver='lbfgs', random_state=0)
+    clf = LogisticRegression(class_weight='balanced')
     clf.fit(X, y)
+    # score = P(y=1 | x)
     scores = clf.predict_proba(X)[:, 1] if hasattr(clf, 'predict_proba') else clf.decision_function(X)
 
     order = np.argsort(-scores)
     y_sorted = y[order]
 
-    # Autograder expects exactly 4 values
-    K = min(4, len(y_sorted))
-    precs, tp = [], 0
-    for k in range(1, K + 1):
-        if y_sorted[k - 1] == 1:
-            tp += 1
-        precs.append(tp / k)
+    Ks = [1, 100, 1000, 10000]
+    precs = []
+    for K in Ks:
+        k = min(K, len(y_sorted))
+        if k == 0:
+            precs.append(0.0)
+            continue
+        topk = y_sorted[:k]
+        precs.append(float(topk.sum()) / k)
     return precs
     
 # ---------- Q7 ----------
@@ -292,12 +221,16 @@ def featureQ7(datum):
     s = str(datum.get('reviewText') or datum.get('review_text') or datum.get('text') or '')
     toks = [t.strip(".,!?;:()[]{}'\"").lower() for t in s.split() if t]
 
-    pos = {"good","great","excellent","amazing","love","loved","awesome",
-           "fantastic","perfect","best","wonderful","favorite","happy",
-           "tasty","fresh","crisp","smooth"}
-    neg = {"bad","terrible","awful","hate","hated","worst","poor",
-           "disappointing","boring","broken","sad","angry",
-           "stale","flat","skunky","bitter"}  
+    pos = {
+        "good","great","excellent","amazing","love","loved","awesome",
+        "fantastic","perfect","best","wonderful","favorite","happy",
+        "tasty","fresh","crisp","smooth"
+    }
+    neg = {
+        "bad","terrible","awful","hate","hated","worst","poor",
+        "disappointing","boring","broken","sad","angry",
+        "stale","flat","skunky","bitter"
+    }
 
     pos_cnt = float(sum(t in pos for t in toks))
     neg_cnt = float(sum(t in neg for t in toks))
@@ -308,13 +241,14 @@ def featureQ7(datum):
     digits  = float(sum(ch.isdigit() for ch in s))
     length  = float(len(s))
 
+    # No bias term here — LR has its own intercept by default.
     return np.array([
-        1.0, length, emarks, qmarks,
+        length, emarks, qmarks,
         pos_cnt, neg_cnt, bal,
         digits, float(caps_ratio)
     ], dtype=float)
-
+    
 def Q7(dataset):
-    _,_,_,_, BER5 = Q5(dataset, featureQ5)
-    _,_,_,_, BER7 = Q5(dataset, featureQ7)
+    _, _, _, _, BER5 = Q5(dataset, featureQ5)
+    _, _, _, _, BER7 = Q5(dataset, featureQ7)
     return BER5, BER7
