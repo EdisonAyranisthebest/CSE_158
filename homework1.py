@@ -3,292 +3,225 @@ from sklearn.linear_model import LinearRegression
 from dateutil import parser as _dateparser
 from collections import defaultdict
 from sklearn import linear_model
-import numpy
 import math
 from sklearn.linear_model import LogisticRegression
+from datetime import datetime
 
-# ---------- Q1 ----------
+# ------------------ Q1 ------------------
 def getMaxLen(dataset):
-    maxLen = 0
-    for d in dataset or []:
-        txt = d.get('reviewText') or d.get('review_text') or d.get('text') or ''
-        maxLen = max(maxLen, len(str(txt)))
-    return maxLen
+    return max(len(str(d.get('reviewText') or d.get('review_text') or d.get('text') or ''))) for d in dataset)
 
 def featureQ1(datum, maxLen):
-    txt = datum.get('reviewText') or datum.get('review_text') or datum.get('text') or ''
-    L = len(str(txt))
-    norm_len = (L / maxLen) if maxLen else 0.0
+    s = str(datum.get('reviewText') or datum.get('review_text') or datum.get('text') or '')
+    norm_len = len(s) / maxLen if maxLen > 0 else 0.0
     return np.array([1.0, norm_len], dtype=float)
 
 def Q1(dataset):
-    maxLen = getMaxLen(dataset)
     X, y = [], []
-    for d in dataset or []:
-        rating = d.get('rating', d.get('overall', d.get('stars')))
-        if rating is None:
+    maxLen = getMaxLen(dataset)
+    for d in dataset:
+        if 'overall' not in d:
             continue
+        y.append(float(d['overall']))
         X.append(featureQ1(d, maxLen))
-        y.append(float(rating))
     if not X:
-        return np.zeros(2), float('nan')
+        return np.zeros(2), np.array([]), np.nan
     X = np.vstack(X)
-    y = np.array(y, dtype=float)
-    lr = LinearRegression(fit_intercept=False).fit(X, y)
-    theta = lr.coef_
-    MSE = float(np.mean((X @ theta - y) ** 2))
-    return theta, MSE
+    y = np.array(y)
+    theta, *_ = np.linalg.lstsq(X, y, rcond=None)
+    preds = X @ theta
+    mse = float(((preds - y) ** 2).mean())
+    return theta, y, mse
 
-# ---------- Q2 ----------
+# ------------------ Q2 ------------------
 def featureQ2(datum, maxLen):
     s = str(datum.get('reviewText') or datum.get('review_text') or datum.get('text') or '')
-    norm_len = (len(s) / maxLen) if maxLen else 0.0
-
-    dt = datum.get('parsed_date')
-    if dt is None:
-        raw = (datum.get('date_added') or datum.get('reviewTime') or
-               datum.get('review_time') or datum.get('date') or datum.get('review_date'))
-        if raw:
-            try:
-                dt = _dateparser.parse(str(raw))
-            except Exception:
-                dt = None
-
-    w_onehot = [0.0]*6   # Mon..Sat; drop Sun
-    m_onehot = [0.0]*11  # Jan..Nov; drop Dec
-    if dt is not None:
-        w = dt.weekday()      # 0..6
-        m = dt.month          # 1..12
-        if 0 <= w <= 5: w_onehot[w] = 1.0
-        if 1 <= m <= 11: m_onehot[m-1] = 1.0
-
-    return np.array([1.0, float(norm_len)] + w_onehot + m_onehot, dtype=float)
+    norm_len = len(s) / maxLen if maxLen > 0 else 0.0
+    date = datum.get('reviewTime') or datum.get('date')
+    try:
+        dt = datetime.strptime(date, "%m %d, %Y")
+        weekday = dt.weekday()   # 0=Mon,…6=Sun
+        month = dt.month
+    except Exception:
+        weekday, month = 0, 1
+    onehot_weekday = [1.0 if i == weekday else 0.0 for i in range(6)]  # drop Sunday
+    onehot_month = [1.0 if i == month else 0.0 for i in range(11)]     # drop December
+    return np.array([1.0, norm_len] + onehot_weekday + onehot_month, dtype=float)
 
 def Q2(dataset):
+    X, y = [], []
     maxLen = getMaxLen(dataset)
-    X, Y = [], []
-    for d in dataset or []:
-        y = d.get('rating', d.get('overall', d.get('stars')))
-        if y is None:
+    for d in dataset:
+        if 'overall' not in d:
             continue
+        y.append(float(d['overall']))
         X.append(featureQ2(d, maxLen))
-        Y.append(float(y))
-    X2 = np.vstack(X) if X else np.zeros((0, 19))
-    Y2 = np.array(Y, dtype=float)
-    if len(Y2) == 0:
-        return X2, Y2, float('nan')
-    lr = LinearRegression(fit_intercept=False).fit(X2, Y2)
-    MSE2 = float(np.mean((X2 @ lr.coef_ - Y2) ** 2))
-    return X2, Y2, MSE2
+    if not X:
+        return np.zeros(19), np.array([]), np.nan
+    X = np.vstack(X)
+    y = np.array(y)
+    theta, *_ = np.linalg.lstsq(X, y, rcond=None)
+    preds = X @ theta
+    mse = float(((preds - y) ** 2).mean())
+    return theta, y, mse
 
-# ---------- Q3 ----------
+# ------------------ Q3 ------------------
 def featureQ3(datum, maxLen):
     s = str(datum.get('reviewText') or datum.get('review_text') or datum.get('text') or '')
-    norm_len = (len(s) / maxLen) if maxLen else 0.0
-
-    dt = datum.get('parsed_date')
-    if dt is None:
-        raw = (datum.get('date_added') or datum.get('reviewTime') or
-               datum.get('review_time') or datum.get('date') or datum.get('review_date'))
-        if raw:
-            try:
-                dt = _dateparser.parse(str(raw))
-            except Exception:
-                dt = None
-
-    if dt is None:
-        w, m = 0, 1
-    else:
-        w, m = dt.weekday(), dt.month
-
-    return np.array([1.0, float(norm_len), float(w), float(m)], dtype=float)
+    norm_len = len(s) / maxLen if maxLen > 0 else 0.0
+    date = datum.get('reviewTime') or datum.get('date')
+    try:
+        dt = datetime.strptime(date, "%m %d, %Y")
+        weekday = float(dt.weekday())
+        month = float(dt.month)
+    except Exception:
+        weekday, month = 0.0, 1.0
+    return np.array([1.0, norm_len, weekday, month], dtype=float)
 
 def Q3(dataset):
+    X, y = [], []
     maxLen = getMaxLen(dataset)
-    X, Y = [], []
-    for d in dataset or []:
-        y = d.get('rating', d.get('overall', d.get('stars')))
-        if y is None:
+    for d in dataset:
+        if 'overall' not in d:
             continue
+        y.append(float(d['overall']))
         X.append(featureQ3(d, maxLen))
-        Y.append(float(y))
-    X3 = np.vstack(X) if X else np.zeros((0, 4))
-    Y3 = np.array(Y, dtype=float)
-    if len(Y3) == 0:
-        return X3, Y3, float('nan')
-    lr = LinearRegression(fit_intercept=False).fit(X3, Y3)
-    MSE3 = float(np.mean((X3 @ lr.coef_ - Y3) ** 2))
-    return X3, Y3, MSE3
+    if not X:
+        return np.zeros(4), np.array([]), np.nan
+    X = np.vstack(X)
+    y = np.array(y)
+    theta, *_ = np.linalg.lstsq(X, y, rcond=None)
+    preds = X @ theta
+    mse = float(((preds - y) ** 2).mean())
+    return theta, y, mse
 
-# ---------- Q4 ----------
+# ------------------ Q4 ------------------
 def Q4(dataset):
+    # dataset is a list already shuffled by runner
     n = len(dataset)
-    split = n // 2
-    train, test = dataset[:split], dataset[split:]
+    train, test = dataset[:n//2], dataset[n//2:]
 
-    maxLen_tr = getMaxLen(train)
+    # Train on Q2 features
+    maxLen_train = getMaxLen(train)
+    X2_train, y2_train = [], []
+    for d in train:
+        if 'overall' not in d: continue
+        y2_train.append(float(d['overall']))
+        X2_train.append(featureQ2(d, maxLen_train))
+    X2_train = np.vstack(X2_train); y2_train = np.array(y2_train)
+    theta2, *_ = np.linalg.lstsq(X2_train, y2_train, rcond=None)
 
-    # Train Q2
-    X2_tr = np.vstack([featureQ2(d, maxLen_tr) for d in train]) if train else np.zeros((0,19))
-    y_tr  = np.array([float(d.get('rating', d.get('overall', d.get('stars')))) for d in train], dtype=float)
-    lr2 = LinearRegression(fit_intercept=False)
-    if len(y_tr): lr2.fit(X2_tr, y_tr)
+    # Test Q2
+    X2_test, y2_test = [], []
+    for d in test:
+        if 'overall' not in d: continue
+        y2_test.append(float(d['overall']))
+        X2_test.append(featureQ2(d, maxLen_train))
+    X2_test = np.vstack(X2_test); y2_test = np.array(y2_test)
+    mse2 = float(((X2_test @ theta2 - y2_test) ** 2).mean())
 
-    # Train Q3
-    X3_tr = np.vstack([featureQ3(d, maxLen_tr) for d in train]) if train else np.zeros((0,4))
-    lr3 = LinearRegression(fit_intercept=False)
-    if len(y_tr): lr3.fit(X3_tr, y_tr)
+    # Train on Q3 features
+    X3_train, y3_train = [], []
+    for d in train:
+        if 'overall' not in d: continue
+        y3_train.append(float(d['overall']))
+        X3_train.append(featureQ3(d, maxLen_train))
+    X3_train = np.vstack(X3_train); y3_train = np.array(y3_train)
+    theta3, *_ = np.linalg.lstsq(X3_train, y3_train, rcond=None)
 
-    # Test
-    y_te  = np.array([float(d.get('rating', d.get('overall', d.get('stars')))) for d in test], dtype=float)
-    X2_te = np.vstack([featureQ2(d, maxLen_tr) for d in test]) if test else np.zeros((0,19))
-    X3_te = np.vstack([featureQ3(d, maxLen_tr) for d in test]) if test else np.zeros((0,4))
+    # Test Q3
+    X3_test, y3_test = [], []
+    for d in test:
+        if 'overall' not in d: continue
+        y3_test.append(float(d['overall']))
+        X3_test.append(featureQ3(d, maxLen_train))
+    X3_test = np.vstack(X3_test); y3_test = np.array(y3_test)
+    mse3 = float(((X3_test @ theta3 - y3_test) ** 2).mean())
 
-    pred2 = X2_te @ getattr(lr2, 'coef_', np.zeros(19))
-    pred3 = X3_te @ getattr(lr3, 'coef_', np.zeros(4))
-    test_mse2 = float(np.mean((pred2 - y_te)**2)) if len(y_te) else float('nan')
-    test_mse3 = float(np.mean((pred3 - y_te)**2)) if len(y_te) else float('nan')
-    return test_mse2, test_mse3
+    return mse2, mse3
 
-# ---------- Q5 ----------
+# ------------------ Q5 ------------------
 def featureQ5(datum):
-    """
-    Baseline features: [bias, review length, '!' count]
-    """
     s = str(datum.get('reviewText') or datum.get('review_text') or datum.get('text') or '')
-    return np.array([1.0, float(len(s)), float(s.count('!'))], dtype=float)
+    return np.array([float(len(s)), float(s.count('!'))], dtype=float)
+
+def _label_from_review_overall(d):
+    if 'review/overall' in d:
+        rating = d['review/overall']
+    elif isinstance(d.get('review'), dict) and 'overall' in d['review']:
+        rating = d['review']['overall']
+    else:
+        return None
+    try:
+        return 1 if float(rating) >= 4.0 else 0
+    except Exception:
+        return None
 
 def Q5(dataset, feat_func):
-    """
-    Labels strictly from review/overall (>=4 => 1, else 0).
-    Classifier: LogisticRegression(class_weight='balanced') ONLY.
-    No shuffling/splitting here (runner handles that).
-    """
     X, y = [], []
-
-    for d in dataset or []:
-        # label strictly from 'review/overall' or review['overall']
-        rating = None
-        if 'review/overall' in d:
-            rating = d['review/overall']
-        elif isinstance(d.get('review'), dict) and 'overall' in d['review']:
-            rating = d['review']['overall']
-        if rating is None:
-            continue
-        try:
-            lab = 1 if float(rating) >= 4.0 else 0
-        except Exception:
-            continue
-
+    for d in dataset:
+        lab = _label_from_review_overall(d)
+        if lab is None: continue
         y.append(lab)
         X.append(feat_func(d))
-
-    if not X:
-        return 0, 0, 0, 0, float('nan')
-
-    X = np.vstack(X)
-    y = np.array(y, dtype=int)
-
+    if not X: return 0, 0, 0, 0, float('nan')
+    X = np.vstack(X); y = np.array(y)
     clf = LogisticRegression(class_weight='balanced')
     clf.fit(X, y)
     yp = clf.predict(X)
-
-    TP = int(((yp == 1) & (y == 1)).sum())
-    TN = int(((yp == 0) & (y == 0)).sum())
-    FP = int(((yp == 1) & (y == 0)).sum())
-    FN = int(((yp == 0) & (y == 1)).sum())
-    P  = max(int((y == 1).sum()), 1)
-    N  = max(int((y == 0).sum()), 1)
-    BER = 0.5 * ((FN / P) + (FP / N))
+    TP = int(((yp==1)&(y==1)).sum())
+    TN = int(((yp==0)&(y==0)).sum())
+    FP = int(((yp==1)&(y==0)).sum())
+    FN = int(((yp==0)&(y==1)).sum())
+    P  = max(int((y==1).sum()),1)
+    N  = max(int((y==0).sum()),1)
+    BER = 0.5*((FN/P)+(FP/N))
     return TP, TN, FP, FN, float(BER)
 
-# ---------- Q6 ----------
+# ------------------ Q6 ------------------
 def Q6(dataset):
-    """
-    Precision@K for K in {1, 10, 100, 1000} using baseline (featureQ5)
-    and LogisticRegression(class_weight='balanced') ONLY.
-    """
     X, y = [], []
-
-    for d in dataset or []:
-        rating = None
-        if 'review/overall' in d:
-            rating = d['review/overall']
-        elif isinstance(d.get('review'), dict) and 'overall' in d['review']:
-            rating = d['review']['overall']
-        if rating is None:
-            continue
-        try:
-            lab = 1 if float(rating) >= 4.0 else 0
-        except Exception:
-            continue
-
+    for d in dataset:
+        lab = _label_from_review_overall(d)
+        if lab is None: continue
         y.append(lab)
         X.append(featureQ5(d))
-
-    if not X:
-        return [0.0, 0.0, 0.0, 0.0]
-
-    X = np.vstack(X)
-    y = np.array(y, dtype=int)
-
+    if not X: return [0.0,0.0,0.0,0.0]
+    X = np.vstack(X); y = np.array(y)
     clf = LogisticRegression(class_weight='balanced')
     clf.fit(X, y)
-    scores = clf.predict_proba(X)[:, 1] if hasattr(clf, 'predict_proba') else clf.decision_function(X)
-
+    scores = clf.predict_proba(X)[:,1]
     order = np.argsort(-scores)
     y_sorted = y[order]
-
-    Ks = [1, 10, 100, 1000]
+    Ks = [1,10,100,1000]
     precs = []
     for K in Ks:
         k = min(K, len(y_sorted))
-        if k == 0:
-            precs.append(0.0)
-            continue
-        topk = y_sorted[:k]
-        precs.append(float(topk.sum()) / k)
+        precs.append(float(y_sorted[:k].sum())/k if k>0 else 0.0)
     return precs
 
-# ---------- Q7 ----------
+# ------------------ Q7 ------------------
 def featureQ7(datum):
-    """
-    Improved features (keep classifier rule same as Q5).
-    """
     s = str(datum.get('reviewText') or datum.get('review_text') or datum.get('text') or '')
     toks = [t.strip(".,!?;:()[]{}'\"").lower() for t in s.split() if t]
-
-    pos = {"good","great","excellent","amazing","love","loved","awesome",
-           "fantastic","perfect","best","wonderful","favorite","happy",
-           "tasty","fresh","crisp","smooth"}
-    neg = {"bad","terrible","awful","hate","hated","worst","poor",
-           "disappointing","boring","broken","sad","angry",
-           "stale","flat","skunky","bitter"}
-
+    pos = {"good","great","excellent","amazing","love","awesome","fantastic","perfect"}
+    neg = {"bad","terrible","awful","hate","worst","poor","boring","flat","stale"}
     pos_cnt = float(sum(t in pos for t in toks))
     neg_cnt = float(sum(t in neg for t in toks))
-    bal     = pos_cnt - neg_cnt
-    qmarks  = float(s.count('?'))
-    emarks  = float(s.count('!'))
-    caps_ratio = sum(1 for ch in s if ch.isalpha() and ch.isupper()) / (1.0 + len(s))
-    digits  = float(sum(ch.isdigit() for ch in s))
-    length  = float(len(s))
-
-    # include a bias like baseline, to mirror starter style
-    return np.array([
-        1.0, length, emarks, qmarks,
-        pos_cnt, neg_cnt, bal,
-        digits, float(caps_ratio)
-    ], dtype=float)
+    bal = pos_cnt - neg_cnt
+    length = float(len(s))
+    emarks = float(s.count('!'))
+    qmarks = float(s.count('?'))
+    digits = float(sum(ch.isdigit() for ch in s))
+    caps_ratio = sum(1 for ch in s if ch.isalpha() and ch.isupper())/(1.0+len(s))
+    avg_wlen = (sum(len(t) for t in toks)/len(toks)) if toks else 0.0
+    return np.array([length, emarks, qmarks, pos_cnt, neg_cnt, bal, avg_wlen, digits, float(caps_ratio)], dtype=float)
 
 def Q7(dataset):
-    """
-    Compare BER with baseline features (featureQ5) vs improved (featureQ7)
-    under the same classifier rule as Q5.
-    """
-    _, _, _, _, BER5 = Q5(dataset, featureQ5)
-    _, _, _, _, BER7 = Q5(dataset, featureQ7)
+    _,_,_,_,BER5 = Q5(dataset, featureQ5)
+    _,_,_,_,BER7 = Q5(dataset, featureQ7)
     return BER5, BER7
+
 
 def Q7(dataset):
     _, _, _, _, BER5 = Q5(dataset, featureQ5)
