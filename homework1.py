@@ -133,19 +133,29 @@ def featureQ5(datum):
 
 def Q5(dataset, feat_func):
     X, y = [], []
-    for d in dataset or []:
-        # Try many possible label keys
-        lab = (
-            d.get('label', d.get('y', d.get('target',
-            d.get('sentiment', d.get('polarity', d.get('class',
-            d.get('truth', d.get('liked', d.get('recommended',
-            d.get('is_positive'))))))))))
-        )
+    label_keys = [
+        'label','y','target','sentiment','polarity','class',
+        'truth','liked','recommended','is_positive'
+    ]
+    rating_keys = [
+        'rating','overall','stars','review_overall','review/overall','beer/overall'
+    ]
 
+    for d in dataset or []:
+        # 1) try many label keys
+        lab = None
+        for k in label_keys:
+            if k in d:
+                lab = d[k]
+                break
+
+        # 2) else derive from rating (>=4 → positive)
         if lab is None:
-            rating = d.get('rating', d.get('overall', d.get('stars',
-                     d.get('review_overall', d.get('review/overall', d.get('beer/overall'))))))
-            )
+            rating = None
+            for rk in rating_keys:
+                if rk in d:
+                    rating = d[rk]
+                    break
             if rating is not None:
                 try:
                     lab = 1 if float(rating) >= 4.0 else 0
@@ -155,6 +165,7 @@ def Q5(dataset, feat_func):
         if lab is None:
             continue
 
+        # normalize to 0/1
         if isinstance(lab, str):
             s = lab.strip().lower()
             if s in ('1','pos','positive','true','yes','y','t','recommended','recommends'):
@@ -169,7 +180,6 @@ def Q5(dataset, feat_func):
         elif isinstance(lab, bool):
             lab = int(lab)
         elif isinstance(lab, (int, float)):
-            
             if lab in (-1, 1):
                 lab = 1 if lab > 0 else 0
             elif lab in (0, 1):
@@ -183,36 +193,46 @@ def Q5(dataset, feat_func):
         X.append(feat_func(d))
 
     if not X:
-        return 0,0,0,0,float('nan')
+        return 0, 0, 0, 0, float('nan')
 
-    X = np.vstack(X); y = np.array(y, dtype=int)
+    X = np.vstack(X)
+    y = np.array(y, dtype=int)
     clf = LogisticRegression(max_iter=1000)
     clf.fit(X, y)
     yp = clf.predict(X)
 
-    TP = int(((yp==1)&(y==1)).sum())
-    TN = int(((yp==0)&(y==0)).sum())
-    FP = int(((yp==1)&(y==0)).sum())
-    FN = int(((yp==0)&(y==1)).sum())
-    P  = max(int((y==1).sum()), 1)
-    N  = max(int((y==0).sum()), 1)
-    BER = 0.5*((FN/P) + (FP/N))
+    TP = int(((yp == 1) & (y == 1)).sum())
+    TN = int(((yp == 0) & (y == 0)).sum())
+    FP = int(((yp == 1) & (y == 0)).sum())
+    FN = int(((yp == 0) & (y == 1)).sum())
+    P = max(int((y == 1).sum()), 1)
+    N = max(int((y == 0).sum()), 1)
+    BER = 0.5 * ((FN / P) + (FP / N))
     return TP, TN, FP, FN, float(BER)
 
 # ---------- Q6 ----------
 def Q6(dataset):
     X, y = [], []
+    label_keys = [
+        'label','y','target','sentiment','polarity','class',
+        'truth','liked','recommended','is_positive'
+    ]
+    rating_keys = [
+        'rating','overall','stars','review_overall','review/overall','beer/overall'
+    ]
+
     for d in dataset or []:
-        lab = (
-            d.get('label', d.get('y', d.get('target',
-            d.get('sentiment', d.get('polarity', d.get('class',
-            d.get('truth', d.get('liked', d.get('recommended',
-            d.get('is_positive'))))))))))
-        )
+        lab = None
+        for k in label_keys:
+            if k in d:
+                lab = d[k]
+                break
         if lab is None:
-            rating = d.get('rating', d.get('overall', d.get('stars',
-                     d.get('review_overall', d.get('review/overall', d.get('beer/overall'))))))
-            )
+            rating = None
+            for rk in rating_keys:
+                if rk in d:
+                    rating = d[rk]
+                    break
             if rating is not None:
                 try:
                     lab = 1 if float(rating) >= 4.0 else 0
@@ -250,21 +270,22 @@ def Q6(dataset):
     if not X:
         return []
 
-    X = np.vstack(X); y = np.array(y, dtype=int)
+    X = np.vstack(X)
+    y = np.array(y, dtype=int)
     clf = LogisticRegression(max_iter=1000)
     clf.fit(X, y)
-    scores = clf.predict_proba(X)[:,1] if hasattr(clf,'predict_proba') else clf.decision_function(X)
+    scores = clf.predict_proba(X)[:, 1] if hasattr(clf, 'predict_proba') else clf.decision_function(X)
 
     order = np.argsort(-scores)
     y_sorted = y[order]
     K = min(100, len(y_sorted))
     precs, tp = [], 0
-    for k in range(1, K+1):
-        if y_sorted[k-1] == 1:
+    for k in range(1, K + 1):
+        if y_sorted[k - 1] == 1:
             tp += 1
         precs.append(tp / k)
     return precs
-
+    
 # ---------- Q7 ----------
 def featureQ7(datum):
     s = str(datum.get('reviewText') or datum.get('review_text') or datum.get('text') or '')
