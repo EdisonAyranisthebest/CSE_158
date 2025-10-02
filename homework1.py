@@ -3,9 +3,9 @@ from sklearn.linear_model import LinearRegression
 from dateutil import parser as _dateparser
 from collections import defaultdict
 from sklearn import linear_model
+import numpy
 import math
 from sklearn.linear_model import LogisticRegression
-from datetime import datetime
 
 # ------------------ Q1 ------------------
 def getMaxLen(dataset):
