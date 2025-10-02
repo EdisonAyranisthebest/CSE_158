@@ -134,20 +134,68 @@ def featureQ5(datum):
 def Q5(dataset, feat_func):
     X, y = [], []
     for d in dataset or []:
-        lab = d.get('label', d.get('y', d.get('target')))
-        if lab is None: continue
+        # Try many possible label keys
+        lab = (
+            d.get('label', d.get('y', d.get('target',
+            d.get('sentiment', d.get('polarity', d.get('class',
+            d.get('truth', d.get('liked', d.get('recommended',
+            d.get('is_positive'))))))))))
+        )
+
+        if lab is None:
+            rating = d.get('rating', d.get('overall', d.get('stars',
+                     d.get('review_overall', d.get('review/overall', d.get('beer/overall'))))))
+            )
+            if rating is not None:
+                try:
+                    lab = 1 if float(rating) >= 4.0 else 0
+                except Exception:
+                    lab = None
+
+        if lab is None:
+            continue
+
         if isinstance(lab, str):
-            lab = 1 if lab.lower() in ('1','pos','positive','true','yes') else 0
-        y.append(int(lab)); X.append(feat_func(d))
-    if not X: return 0,0,0,0,float('nan')
+            s = lab.strip().lower()
+            if s in ('1','pos','positive','true','yes','y','t','recommended','recommends'):
+                lab = 1
+            elif s in ('0','neg','negative','false','no','n','f','not_recommended','not recommended'):
+                lab = 0
+            else:
+                try:
+                    lab = 1 if float(s) >= 4.0 else 0
+                except Exception:
+                    continue
+        elif isinstance(lab, bool):
+            lab = int(lab)
+        elif isinstance(lab, (int, float)):
+            
+            if lab in (-1, 1):
+                lab = 1 if lab > 0 else 0
+            elif lab in (0, 1):
+                lab = int(lab)
+            else:
+                lab = 1 if float(lab) >= 4.0 else 0
+        else:
+            continue
+
+        y.append(int(lab))
+        X.append(feat_func(d))
+
+    if not X:
+        return 0,0,0,0,float('nan')
+
     X = np.vstack(X); y = np.array(y, dtype=int)
-    clf = LogisticRegression(max_iter=1000).fit(X, y)
+    clf = LogisticRegression(max_iter=1000)
+    clf.fit(X, y)
     yp = clf.predict(X)
+
     TP = int(((yp==1)&(y==1)).sum())
     TN = int(((yp==0)&(y==0)).sum())
     FP = int(((yp==1)&(y==0)).sum())
     FN = int(((yp==0)&(y==1)).sum())
-    P = max(int((y==1).sum()), 1); N = max(int((y==0).sum()), 1)
+    P  = max(int((y==1).sum()), 1)
+    N  = max(int((y==0).sum()), 1)
     BER = 0.5*((FN/P) + (FP/N))
     return TP, TN, FP, FN, float(BER)
 
@@ -155,19 +203,65 @@ def Q5(dataset, feat_func):
 def Q6(dataset):
     X, y = [], []
     for d in dataset or []:
-        lab = d.get('label', d.get('y', d.get('target')))
-        if lab is None: continue
+        lab = (
+            d.get('label', d.get('y', d.get('target',
+            d.get('sentiment', d.get('polarity', d.get('class',
+            d.get('truth', d.get('liked', d.get('recommended',
+            d.get('is_positive'))))))))))
+        )
+        if lab is None:
+            rating = d.get('rating', d.get('overall', d.get('stars',
+                     d.get('review_overall', d.get('review/overall', d.get('beer/overall'))))))
+            )
+            if rating is not None:
+                try:
+                    lab = 1 if float(rating) >= 4.0 else 0
+                except Exception:
+                    lab = None
+        if lab is None:
+            continue
+
         if isinstance(lab, str):
-            lab = 1 if lab.lower() in ('1','pos','positive','true','yes') else 0
-        y.append(int(lab)); X.append(featureQ5(d))
-    if not X: return []
+            s = lab.strip().lower()
+            if s in ('1','pos','positive','true','yes','y','t','recommended','recommends'):
+                lab = 1
+            elif s in ('0','neg','negative','false','no','n','f','not_recommended','not recommended'):
+                lab = 0
+            else:
+                try:
+                    lab = 1 if float(s) >= 4.0 else 0
+                except Exception:
+                    continue
+        elif isinstance(lab, bool):
+            lab = int(lab)
+        elif isinstance(lab, (int, float)):
+            if lab in (-1, 1):
+                lab = 1 if lab > 0 else 0
+            elif lab in (0, 1):
+                lab = int(lab)
+            else:
+                lab = 1 if float(lab) >= 4.0 else 0
+        else:
+            continue
+
+        y.append(int(lab))
+        X.append(featureQ5(d))
+
+    if not X:
+        return []
+
     X = np.vstack(X); y = np.array(y, dtype=int)
-    clf = LogisticRegression(max_iter=1000).fit(X, y)
+    clf = LogisticRegression(max_iter=1000)
+    clf.fit(X, y)
     scores = clf.predict_proba(X)[:,1] if hasattr(clf,'predict_proba') else clf.decision_function(X)
-    order = np.argsort(-scores); y_sorted = y[order]
-    K = min(100, len(y_sorted)); precs, tp = [], 0
+
+    order = np.argsort(-scores)
+    y_sorted = y[order]
+    K = min(100, len(y_sorted))
+    precs, tp = [], 0
     for k in range(1, K+1):
-        if y_sorted[k-1] == 1: tp += 1
+        if y_sorted[k-1] == 1:
+            tp += 1
         precs.append(tp / k)
     return precs
 
@@ -175,17 +269,28 @@ def Q6(dataset):
 def featureQ7(datum):
     s = str(datum.get('reviewText') or datum.get('review_text') or datum.get('text') or '')
     toks = [t.strip(".,!?;:()[]{}'\"").lower() for t in s.split() if t]
+
     pos = {"good","great","excellent","amazing","love","loved","awesome",
-           "fantastic","perfect","best","wonderful","favorite","happy"}
+           "fantastic","perfect","best","wonderful","favorite","happy",
+           "tasty","fresh","crisp","smooth"}
     neg = {"bad","terrible","awful","hate","hated","worst","poor",
-           "disappointing","boring","broken","sad","angry"}
+           "disappointing","boring","broken","sad","angry",
+           "stale","flat","skunky","bitter"}  
+
     pos_cnt = float(sum(t in pos for t in toks))
     neg_cnt = float(sum(t in neg for t in toks))
-    bal = pos_cnt - neg_cnt
-    caps_ratio = sum(1 for ch in s if ch.isalpha() and ch.isupper())/(1.0+len(s))
-    digits = float(sum(ch.isdigit() for ch in s))
-    return np.array([1.0, float(len(s)), float(s.count('!')), float(s.count('?')),
-                     pos_cnt, neg_cnt, bal, digits, float(caps_ratio)], dtype=float)
+    bal     = pos_cnt - neg_cnt
+    qmarks  = float(s.count('?'))
+    emarks  = float(s.count('!'))
+    caps_ratio = sum(1 for ch in s if ch.isalpha() and ch.isupper()) / (1.0 + len(s))
+    digits  = float(sum(ch.isdigit() for ch in s))
+    length  = float(len(s))
+
+    return np.array([
+        1.0, length, emarks, qmarks,
+        pos_cnt, neg_cnt, bal,
+        digits, float(caps_ratio)
+    ], dtype=float)
 
 def Q7(dataset):
     _,_,_,_, BER5 = Q5(dataset, featureQ5)
