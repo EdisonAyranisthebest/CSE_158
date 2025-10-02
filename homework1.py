@@ -1,4 +1,3 @@
-%%writefile homework1.py
 import numpy as np
 from sklearn.linear_model import LinearRegression
 from dateutil import parser as _dateparser
