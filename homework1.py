@@ -142,14 +142,11 @@ def Q5(dataset, feat_func):
     ]
 
     for d in dataset or []:
-        # 1) direct labels
         lab = None
         for k in label_keys:
             if k in d:
                 lab = d[k]
                 break
-
-        # 2) derive from rating (>= 4 => positive)
         if lab is None:
             rating = None
             for rk in rating_keys:
@@ -161,11 +158,10 @@ def Q5(dataset, feat_func):
                     lab = 1 if float(rating) >= 4.0 else 0
                 except Exception:
                     lab = None
-
         if lab is None:
             continue
 
-        # Normalize 0/1
+        # normalize 0/1
         if isinstance(lab, str):
             s = lab.strip().lower()
             if s in ('1','pos','positive','true','yes','y','t','recommended','recommends'):
@@ -198,8 +194,8 @@ def Q5(dataset, feat_func):
     X = np.vstack(X)
     y = np.array(y, dtype=int)
 
-    # Match reference-style: no intercept, near-unregularized
-    clf = LogisticRegression(max_iter=1000, C=1e6, fit_intercept=False, solver='lbfgs', random_state=0)
+    # ✅ Only param allowed: class_weight if question says so
+    clf = LogisticRegression(class_weight='balanced')
     clf.fit(X, y)
     yp = clf.predict(X)
 
@@ -211,7 +207,6 @@ def Q5(dataset, feat_func):
     N  = max(int((y == 0).sum()), 1)
     BER = 0.5 * ((FN / P) + (FP / N))
     return TP, TN, FP, FN, float(BER)
-
 # ---------- Q6 ----------
 def Q6(dataset):
     X, y = [], []
