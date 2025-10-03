@@ -178,7 +178,7 @@ def featureQ5(datum):
     Baseline features (NO explicit bias term): [review_length, exclamation_count]
     """
     s = str(datum.get('reviewText') or datum.get('review_text') or datum.get('text') or '')
-    return np.array([float(len(s)), float(s.count('!'))], dtype=float)
+    return np.array([1.0, float(len(s)), float(s.count('!'))], dtype=float)
 
 def _label_from_review_overall(d):
     """
@@ -204,16 +204,37 @@ def Q5(dataset, feat_func):
     """
     X, y = [], []
     for d in (dataset or []):
-        lab = _label_from_review_overall(d)
+        lab = d.get('label', d.get('y', d.get('target')))
         if lab is None:
             continue
+        # normalize label to {0,1}
+        if isinstance(lab, str):
+            s = lab.strip().lower()
+            if s in ('1','true','yes','y','t','pos','positive'):
+                lab = 1
+            elif s in ('0','false','no','n','f','neg','negative'):
+                lab = 0
+            else:
+                # if it's a numeric string, fall back safely
+                try:
+                    lab = int(float(s) > 0.5)
+                except Exception:
+                    continue
+        elif isinstance(lab, bool):
+            lab = int(lab)
+        else:
+            lab = int(lab)
+
         y.append(lab)
         X.append(feat_func(d))
+
     if not X:
         return 0, 0, 0, 0, float('nan')
+
     X = np.vstack(X)
     y = np.array(y, dtype=int)
 
+    # Balanced logistic regression, no extra params
     clf = LogisticRegression(class_weight='balanced')
     clf.fit(X, y)
     yp = clf.predict(X)
@@ -222,8 +243,8 @@ def Q5(dataset, feat_func):
     TN = int(((yp == 0) & (y == 0)).sum())
     FP = int(((yp == 1) & (y == 0)).sum())
     FN = int(((yp == 0) & (y == 1)).sum())
-    P = max(int((y == 1).sum()), 1)
-    N = max(int((y == 0).sum()), 1)
+    P  = max(int((y == 1).sum()), 1)
+    N  = max(int((y == 0).sum()), 1)
     BER = 0.5 * ((FN / P) + (FP / N))
     return TP, TN, FP, FN, float(BER)
 
@@ -234,20 +255,38 @@ def Q6(dataset):
     """
     X, y = [], []
     for d in (dataset or []):
-        lab = _label_from_review_overall(d)
+        lab = d.get('label', d.get('y', d.get('target')))
         if lab is None:
             continue
+        if isinstance(lab, str):
+            s = lab.strip().lower()
+            if s in ('1','true','yes','y','t','pos','positive'):
+                lab = 1
+            elif s in ('0','false','no','n','f','neg','negative'):
+                lab = 0
+            else:
+                try:
+                    lab = int(float(s) > 0.5)
+                except Exception:
+                    continue
+        elif isinstance(lab, bool):
+            lab = int(lab)
+        else:
+            lab = int(lab)
+
         y.append(lab)
         X.append(featureQ5(d))
+
     if not X:
         return [0.0, 0.0, 0.0, 0.0]
+
     X = np.vstack(X)
     y = np.array(y, dtype=int)
 
     clf = LogisticRegression(class_weight='balanced')
     clf.fit(X, y)
-    scores = clf.predict_proba(X)[:, 1] if hasattr(clf, 'predict_proba') else clf.decision_function(X)
 
+    scores = clf.predict_proba(X)[:, 1] if hasattr(clf, 'predict_proba') else clf.decision_function(X)
     order = np.argsort(-scores)
     y_sorted = y[order]
 
@@ -255,13 +294,9 @@ def Q6(dataset):
     precs = []
     for K in Ks:
         k = min(K, len(y_sorted))
-        if k == 0:
-            precs.append(0.0)
-        else:
-            topk = y_sorted[:k]
-            precs.append(float(topk.sum()) / k)
+        precs.append(float(y_sorted[:k].sum()) / k if k > 0 else 0.0)
     return precs
-
+    
 def featureQ7(datum):
     """
     Stronger features for Q7 (NO explicit bias term), same classifier rule as Q5.
@@ -269,16 +304,8 @@ def featureQ7(datum):
     s = str(datum.get('reviewText') or datum.get('review_text') or datum.get('text') or '')
     toks = [t.strip(".,!?;:()[]{}'\"").lower() for t in s.split() if t]
 
-    pos = {
-        "good","great","excellent","amazing","love","loved","awesome",
-        "fantastic","perfect","best","wonderful","favorite","happy",
-        "tasty","fresh","crisp","smooth","aroma","balanced","complex"
-    }
-    neg = {
-        "bad","terrible","awful","hate","hated","worst","poor",
-        "disappointing","boring","broken","flat","stale","skunky",
-        "bitter","sour","thin","watery","metallic","off"
-    }
+    pos = {"good","great","excellent","amazing","love","loved","awesome","fantastic","perfect","best"}
+    neg = {"bad","terrible","awful","hate","hated","worst","poor","boring","flat","stale","bitter","sour"}
 
     pos_cnt = float(sum(t in pos for t in toks))
     neg_cnt = float(sum(t in neg for t in toks))
@@ -290,11 +317,7 @@ def featureQ7(datum):
     caps_ratio = sum(1 for ch in s if ch.isalpha() and ch.isupper()) / (1.0 + len(s))
     avg_wlen = (sum(len(t) for t in toks) / len(toks)) if toks else 0.0
 
-    return np.array([
-        length, emarks, qmarks,
-        pos_cnt, neg_cnt, bal,
-        avg_wlen, digits, float(caps_ratio)
-    ], dtype=float)
+    return np.array([length, emarks, qmarks, pos_cnt, neg_cnt, bal, avg_wlen, digits, float(caps_ratio)], dtype=float)
 
 def Q7(dataset):
     """
