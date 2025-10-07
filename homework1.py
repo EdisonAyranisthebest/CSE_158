@@ -1,369 +1,274 @@
-import numpy as np
-from sklearn.linear_model import LinearRegression
-from dateutil import parser as _dateparser
+# ====== Imports ======
 from collections import defaultdict
 from sklearn import linear_model
-import numpy
-import math
 from sklearn.linear_model import LogisticRegression
-from typing import List, Tuple
-from collections import Counter
-from datetime import datetime
-import re
-from sklearn.metrics import mean_squared_error, precision_score
+from sklearn.model_selection import train_test_split
+import numpy as np
+import math
+import datetime
 
-
-# =========================
-# Helpers
-# =========================
-
-POS_WORDS = {
-    "good", "great", "love", "loved", "amazing", "excellent", "awesome",
-    "fantastic", "favorite", "best", "enjoyed", "fun"
-}
-NEG_WORDS = {
-    "bad", "boring", "hate", "hated", "awful", "terrible", "worst",
-    "disappointing", "meh", "poor", "waste"
-}
-
-def _get_text(d: dict) -> str:
-    return d.get("review_text") or d.get("text") or d.get("review") or ""
-
-def _get_rating(d: dict):
-    # Try flat keys first
-    for k in ["rating", "stars", "overall", "review_overall", "review/overall"]:
-        if k in d:
-            try:
-                return float(d[k])
-            except Exception:
-                pass
-    # Try nested "review" dict
-    if "review" in d and isinstance(d["review"], dict):
-        for k in ["overall", "rating", "stars"]:
-            if k in d["review"]:
-                try:
-                    return float(d["review"][k])
-                except Exception:
-                    pass
-    return None  # unknown / missing
-
-def _parse_date(d: dict):
-    # Try common date keys / formats
-    for k in ["date_added", "date", "time", "review_time", "parsed_date"]:
-        if k in d and d[k]:
-            s = str(d[k])
-            for fmt in [
-                "%a %b %d %H:%M:%S %z %Y",  # Twitter-like "Sun Jul 30 07:44:10 -0700 2017"
-                "%Y-%m-%d %H:%M:%S%z",
-                "%Y-%m-%d %H:%M:%S",
-                "%Y-%m-%d",
-                "%m/%d/%Y",
-                "%b %d, %Y",
-            ]:
-                try:
-                    return datetime.strptime(s, fmt)
-                except Exception:
-                    continue
-    return None
-
-def _month_idx(dt: datetime) -> int:
-    return dt.month if dt else 0  # 1..12, 0 if unknown
-
-def _weekday_idx(dt: datetime) -> int:
-    return dt.weekday() + 1 if dt else 0  # 1..7, 0 if unknown
-
-def _abv(d: dict):
-    for k in ["beer_abv", "abv", "ABV", "beer/ABV"]:
-        if k in d:
-            try:
-                return float(d[k])
-            except Exception:
-                pass
-    if "beer" in d and isinstance(d["beer"], dict):
-        for k in ["abv", "ABV"]:
-            if k in d["beer"]:
-                try:
-                    return float(d["beer"][k])
-                except Exception:
-                    pass
-    return None
-
-def _n_votes(d: dict) -> float:
-    for k in ["n_votes", "votes", "helpfulness", "nHelpful", "helpful"]:
-        if k in d:
-            try:
-                return float(d[k])
-            except Exception:
-                pass
-    return 0.0
-
-def _n_comments(d: dict) -> float:
-    for k in ["n_comments", "comments", "nComments"]:
-        if k in d:
-            try:
-                return float(d[k])
-            except Exception:
-                pass
-    return 0.0
-
-def _safe_stack(rows: List[List[float]]):
-    """Stack lists of possibly different lengths into a 2D array by right-padding with zeros."""
-    if not rows:
-        return np.zeros((0, 0))
-    width = max(len(r) for r in rows)
-    fixed = [r + [0.0] * (width - len(r)) for r in rows]
-    return np.array(fixed, dtype=float)
-
-def _one_hot(idx: int, size: int) -> List[float]:
-    v = [0.0] * size
-    if 1 <= idx <= size:
-        v[idx - 1] = 1.0
-    return v
-
-
-# =========================
-# Q1
-# =========================
-
-def getMaxLen(dataset: List[dict]) -> int:
-    """Return the maximum character length over review texts."""
-    maxLen = 1
+# ====== Q1 ======
+def getMaxLen(dataset):
+    maxLen = 0
     for d in dataset:
-        maxLen = max(maxLen, len(_get_text(d)))
+        txt = d.get('review/text', '') or ''
+        maxLen = max(maxLen, len(txt))
     return maxLen
 
-def featureQ1(datum: dict, maxLen: int) -> List[float]:
-    """Feature vector: [1, normalized_length]."""
-    txt = _get_text(datum)
-    return [1.0, len(txt) / max(1, maxLen)]
+def featureQ1(datum, maxLen):
+    txt = datum.get('review/text', '') or ''
+    L = len(txt)
+    normL = (L / maxLen) if maxLen > 0 else 0.0
+    return np.array([1.0, normL], dtype=float)
 
-def Q1(dataset: List[dict]) -> Tuple[np.ndarray, float]:
-    """Linear regression on [bias, normalized_length] -> rating."""
+def Q1(dataset):
     maxLen = getMaxLen(dataset)
-    X = _safe_stack([featureQ1(d, maxLen) for d in dataset])
-    Y = np.array([_get_rating(d) for d in dataset], dtype=float)
-    mask = ~np.isnan(Y)
-    X, Y = X[mask], Y[mask]
-    if len(Y) == 0:
-        return np.array([0.0, 0.0]), float("nan")
-    model = LinearRegression(fit_intercept=False).fit(X, Y)
-    preds = model.predict(X)
-    mse = mean_squared_error(Y, preds)
-    return model.coef_, float(mse)
+    X_rows, y_vals = [], []
+    for d in dataset:
+        try:
+            y = float(d.get('review/overall', None))
+        except (TypeError, ValueError):
+            continue
+        x = featureQ1(d, maxLen)
+        if np.isfinite(y) and np.all(np.isfinite(x)):
+            X_rows.append(x); y_vals.append(y)
 
+    if not X_rows:
+        return np.array([0.0, 0.0]), math.nan
 
-# =========================
-# Q2
-# =========================
+    X = np.vstack(X_rows).astype(float)
+    y = np.asarray(y_vals, dtype=float)
 
-def featureQ2(datum: dict, maxLen: int) -> List[float]:
-    """[1, normalized_length, weekday (1-7 or 0), month (1-12 or 0)]."""
-    dt = _parse_date(datum)
-    return [
-        1.0,
-        len(_get_text(datum)) / max(1, maxLen),
-        float(_weekday_idx(dt)),
-        float(_month_idx(dt)),
-    ]
+    model = linear_model.LinearRegression(fit_intercept=False)
+    model.fit(X, y)
+    theta = model.coef_.astype(float)
+    mse = float(np.mean((model.predict(X) - y) ** 2))
+    return theta, mse
 
-def Q2(dataset: List[dict]):
+# ====== Q2 ======
+def featureQ2(datum, maxLen):
+    txt = datum.get('review/text', '') or ''
+    L = len(txt)
+    normL = (L / maxLen) if maxLen > 0 else 0.0
+
+    ts = datum.get('review/time', datum.get('review/timeUnix', None))
+    try:
+        # accept either 'review/time' (unix) or 'review/timeUnix'
+        dt = datetime.datetime.fromtimestamp(int(ts))
+        day = float(dt.day); month = float(dt.month)
+    except Exception:
+        # try timeStruct if present
+        ts2 = datum.get('review/timeStruct', {})
+        day = float(ts2.get('mday', 0) or 0)
+        month = float(ts2.get('mon', 0) or 0)
+    return np.array([1.0, normL, day, month], dtype=float)
+
+def Q2(dataset):
     maxLen = getMaxLen(dataset)
-    X = _safe_stack([featureQ2(d, maxLen) for d in dataset])
-    Y = np.array([_get_rating(d) for d in dataset], dtype=float)
-    mask = ~np.isnan(Y)
-    X, Y = X[mask], Y[mask]
-    if len(Y) == 0:
-        return X, Y, float("nan")
-    model = LinearRegression(fit_intercept=False).fit(X, Y)
-    mse = mean_squared_error(Y, model.predict(X))
-    return X, Y, float(mse)
+    X_rows, y_vals = [], []
+    for d in dataset:
+        try:
+            y = float(d.get('review/overall', None))
+        except (TypeError, ValueError):
+            continue
+        x = featureQ2(d, maxLen)
+        if np.isfinite(y) and np.all(np.isfinite(x)):
+            X_rows.append(x); y_vals.append(y)
 
+    if not X_rows:
+        return None, None, math.nan
 
-# =========================
-# Q3
-# =========================
+    X2 = np.vstack(X_rows).astype(float)
+    Y2 = np.asarray(y_vals, dtype=float)
 
-def featureQ3(datum: dict, maxLen: int) -> List[float]:
-    """[1, normalized_length] + one-hot weekday (7) + one-hot month (12)."""
-    dt = _parse_date(datum)
-    feats = [1.0, len(_get_text(datum)) / max(1, maxLen)]
-    feats += _one_hot(_weekday_idx(dt), 7)
-    feats += _one_hot(_month_idx(dt), 12)
-    return feats
+    model = linear_model.LinearRegression(fit_intercept=False)
+    model.fit(X2, Y2)
+    mse2 = float(np.mean((model.predict(X2) - Y2) ** 2))
+    return X2, Y2, mse2
 
-def Q3(dataset: List[dict]):
+# ====== Q3 ======
+# hashed one-hot for reviewer id (size 100)
+def featureQ3(datum, maxLen, user_bucket_size=100):
+    base = featureQ2(datum, maxLen)  # [1, normL, day, month]
+    user = str(datum.get('user/profileName', '') or '')
+    bucket = hash(user) % user_bucket_size if user else None
+    user_vec = np.zeros(user_bucket_size, dtype=float)
+    if bucket is not None:
+        user_vec[bucket] = 1.0
+    return np.concatenate([base, user_vec])
+
+def Q3(dataset):
     maxLen = getMaxLen(dataset)
-    X = _safe_stack([featureQ3(d, maxLen) for d in dataset])
-    Y = np.array([_get_rating(d) for d in dataset], dtype=float)
-    mask = ~np.isnan(Y)
-    X, Y = X[mask], Y[mask]
-    if len(Y) == 0:
-        return X, Y, float("nan")
-    model = LinearRegression(fit_intercept=False).fit(X, Y)
-    mse = mean_squared_error(Y, model.predict(X))
-    return X, Y, float(mse)
+    X_rows, y_vals = [], []
+    for d in dataset:
+        try:
+            y = float(d.get('review/overall', None))
+        except (TypeError, ValueError):
+            continue
+        x = featureQ3(d, maxLen)
+        if np.isfinite(y) and np.all(np.isfinite(x)):
+            X_rows.append(x); y_vals.append(y)
 
+    if not X_rows:
+        return None, None, math.nan
 
-# =========================
-# Q4
-# =========================
+    X3 = np.vstack(X_rows).astype(float)
+    Y3 = np.asarray(y_vals, dtype=float)
 
-def Q4(dataset_shuffled: List[dict]):
-    """
-    Compare generalization of Q2 vs Q3 using an 80/20 train/test split
-    on the given (already-shuffled) dataset.
-    Returns: (test_mse2, test_mse3)
-    """
-    n = len(dataset_shuffled)
-    split = max(1, int(0.8 * n))
-    train, test = dataset_shuffled[:split], dataset_shuffled[split:]
+    model = linear_model.LinearRegression(fit_intercept=False)
+    model.fit(X3, Y3)
+    mse3 = float(np.mean((model.predict(X3) - Y3) ** 2))
+    return X3, Y3, mse3
 
-    # Train
-    maxLen_tr = getMaxLen(train)
-    X2_tr = _safe_stack([featureQ2(d, maxLen_tr) for d in train])
-    Y_tr = np.array([_get_rating(d) for d in train], dtype=float)
-    mask_tr = ~np.isnan(Y_tr)
-    X2_tr, Y_tr = X2_tr[mask_tr], Y_tr[mask_tr]
+# ====== Q4 ======  (compare Q2 vs Q3 on the same train/test split)
+def Q4(dataset):
+    data = [d for d in dataset if 'review/overall' in d]
+    if not data:
+        return math.nan, math.nan
 
-    X3_tr = _safe_stack([featureQ3(d, maxLen_tr) for d in train])
-    X3_tr = X3_tr[mask_tr]
+    train, test = train_test_split(data, test_size=0.2, random_state=42, shuffle=True)
+    maxLen_train = getMaxLen(train)
 
-    m2 = LinearRegression(fit_intercept=False).fit(X2_tr, Y_tr) if len(Y_tr) else None
-    m3 = LinearRegression(fit_intercept=False).fit(X3_tr, Y_tr) if len(Y_tr) else None
+    # --- Q2 features ---
+    Xtr2 = np.vstack([featureQ2(d, maxLen_train) for d in train])
+    ytr2 = np.array([float(d['review/overall']) for d in train], dtype=float)
+    Xt2  = np.vstack([featureQ2(d, maxLen_train) for d in test])
+    yt2  = np.array([float(d['review/overall']) for d in test], dtype=float)
 
-    # Test
-    maxLen_te = getMaxLen(test) or maxLen_tr
-    X2_te = _safe_stack([featureQ2(d, maxLen_te) for d in test])
-    Y_te = np.array([_get_rating(d) for d in test], dtype=float)
-    mask_te = ~np.isnan(Y_te)
-    X2_te, Y_te = X2_te[mask_te], Y_te[mask_te]
+    reg2 = linear_model.LinearRegression(fit_intercept=False)
+    reg2.fit(Xtr2, ytr2)
+    test_mse2 = float(np.mean((reg2.predict(Xt2) - yt2)**2))
 
-    X3_te = _safe_stack([featureQ3(d, maxLen_te) for d in test])
-    X3_te = X3_te[mask_te]
+    # --- Q3 features ---
+    Xtr3 = np.vstack([featureQ3(d, maxLen_train) for d in train])
+    Xt3  = np.vstack([featureQ3(d, maxLen_train) for d in test])
 
-    test_mse2 = mean_squared_error(Y_te, m2.predict(X2_te)) if (m2 and len(Y_te)) else float("nan")
-    test_mse3 = mean_squared_error(Y_te, m3.predict(X3_te)) if (m3 and len(Y_te)) else float("nan")
-    return float(test_mse2), float(test_mse3)
+    reg3 = linear_model.LinearRegression(fit_intercept=False)
+    reg3.fit(Xtr3, ytr2)  # same targets/order
+    test_mse3 = float(np.mean((reg3.predict(Xt3) - yt2)**2))
 
+    return test_mse2, test_mse3
 
-# =========================
-# Q5
-# =========================
+# ====== Q5 ====== (binary classification with BER)
+_POS_WORDS = {"good","great","amazing","excellent","love","pleasant","fresh","nice","honey"}
+_NEG_WORDS = {"bad","poor","awful","terrible","disappoint","not","lactic","sour","bitter","dust"}
 
-def featureQ5(datum: dict) -> List[float]:
-    """
-    Simple features for a binary 'positive' classifier:
-    [1, ABV, char_length, n_votes, n_comments]
-    """
-    txt = _get_text(datum)
-    return [
-        1.0,
-        (_abv(datum) or 0.0),
-        float(len(txt)),
-        _n_votes(datum),
-        _n_comments(datum),
-    ]
+def _count_matches(text, vocab):
+    cnt = 0
+    for tok in text.split():
+        t = ''.join(ch for ch in tok.lower() if ch.isalpha())
+        if t in vocab: cnt += 1
+    return float(cnt)
 
-def _label_positive(d: dict):
-    r = _get_rating(d)
-    if r is None:
-        return None
-    return 1 if r >= 4.0 else 0
+def featureQ5(datum):
+    txt = datum.get('review/text', '') or ''
+    length = float(len(txt))
+    pos = _count_matches(txt, _POS_WORDS)
+    neg = _count_matches(txt, _NEG_WORDS)
+    bangs = float(txt.count('!'))
+    return np.array([1.0, length, pos, neg, bangs], dtype=float)
 
-def Q5(dataset: List[dict], feat_func):
-    """
-    Fit logistic regression on the whole dataset using feat_func (e.g., featureQ5),
-    and return (TP, TN, FP, FN, BER) evaluated on that same dataset.
-    """
-    X = _safe_stack([feat_func(d) for d in dataset])
-    y = np.array([_label_positive(d) for d in dataset])
-    mask = y != None
-    X, y = X[mask], y[mask].astype(int)
-    if len(y) == 0:
-        return 0, 0, 0, 0, float("nan")
+def Q5(dataset, feat_func):
+    rows = []
+    for d in dataset:
+        try:
+            y = float(d.get('review/overall', None))
+        except (TypeError, ValueError):
+            continue
+        if not np.isfinite(y): 
+            continue
+        x = feat_func(d)
+        if x is None or not np.all(np.isfinite(x)):
+            continue
+        rows.append((x, 1 if y >= 4.0 else 0))
 
-    clf = LogisticRegression(max_iter=200, fit_intercept=False).fit(X, y)
-    yhat = clf.predict(X)
+    if not rows:
+        return 0, 0, 0, 0, math.nan
 
-    TP = int(((y == 1) & (yhat == 1)).sum())
-    TN = int(((y == 0) & (yhat == 0)).sum())
-    FP = int(((y == 0) & (yhat == 1)).sum())
-    FN = int(((y == 1) & (yhat == 0)).sum())
+    X = np.vstack([r[0] for r in rows])
+    y = np.array([r[1] for r in rows], dtype=int)
 
-    # Balanced Error Rate (BER) = 1 - 0.5*(TPR + TNR)
-    tpr = TP / max(1, (TP + FN))
-    tnr = TN / max(1, (TN + FP))
-    BER = 1 - 0.5 * (tpr + tnr)
-    return TP, TN, FP, FN, float(BER)
+    Xtr, Xt, ytr, yt = train_test_split(X, y, test_size=0.2, random_state=42, shuffle=True)
+    clf = LogisticRegression(max_iter=1000)
+    clf.fit(Xtr, ytr)
 
+    yp = clf.predict(Xt)
 
-# =========================
-# Q6
-# =========================
+    TP = int(((yp == 1) & (yt == 1)).sum())
+    TN = int(((yp == 0) & (yt == 0)).sum())
+    FP = int(((yp == 1) & (yt == 0)).sum())
+    FN = int(((yp == 0) & (yt == 1)).sum())
 
-def Q6(dataset: List[dict]):
-    """
-    Train the same classifier as Q5 (featureQ5) and return a list of precision
-    values at thresholds 0.05, 0.10, ..., 0.95.
-    """
-    X = _safe_stack([featureQ5(d) for d in dataset])
-    y = np.array([_label_positive(d) for d in dataset])
-    mask = y != None
-    X, y = X[mask], y[mask].astype(int)
-    if len(y) == 0:
-        return []
+    pos = (yt == 1).sum()
+    neg = (yt == 0).sum()
+    fn_rate = (FN / pos) if pos > 0 else 0.0
+    fp_rate = (FP / neg) if neg > 0 else 0.0
+    BER = float(0.5 * (fn_rate + fp_rate))
+    return TP, TN, FP, FN, BER
 
-    clf = LogisticRegression(max_iter=200, fit_intercept=False).fit(X, y)
-    proba = clf.predict_proba(X)[:, 1]
+# ====== Q6 ====== (precision@k using Q5 baseline model)
+def Q6(dataset):
+    rows = []
+    for d in dataset:
+        try:
+            y = float(d.get('review/overall', None))
+        except (TypeError, ValueError):
+            continue
+        if not np.isfinite(y): 
+            continue
+        rows.append((featureQ5(d), 1 if y >= 4.0 else 0))
+    if not rows:
+        return {}
 
-    precs = []
-    for thr in np.linspace(0.05, 0.95, 19):
-        yhat = (proba >= thr).astype(int)
-        # If the classifier predicts no positives at a threshold, define precision as 1.0
-        # (so you don't get a divide-by-zero per the usual precision definition)
-        if yhat.sum() == 0:
-            precs.append(1.0)
+    X = np.vstack([r[0] for r in rows])
+    y = np.array([r[1] for r in rows], dtype=int)
+
+    Xtr, Xt, ytr, yt = train_test_split(X, y, test_size=0.2, random_state=42, shuffle=True)
+    clf = LogisticRegression(max_iter=1000)
+    clf.fit(Xtr, ytr)
+
+    scores = clf.predict_proba(Xt)[:, 1]
+    order = np.argsort(-scores)
+    yt_sorted = yt[order]
+
+    ks = [10, 50, 100, 200]
+    precs = {}
+    for k in ks:
+        k_eff = min(k, len(yt_sorted))
+        if k_eff == 0:
+            precs[k] = math.nan
         else:
-            precs.append(float(precision_score(y, yhat)))
+            precs[k] = float(yt_sorted[:k_eff].mean())  # precision = positives/k
     return precs
 
+# ====== Q7 ====== (improved features over Q5)
+def featureQ7(datum):
+    txt = datum.get('review/text', '') or ''
+    L = float(len(txt))
+    words = [w for w in txt.split() if w]
+    n_words = float(len(words))
+    avg_wlen = (sum(len(w) for w in words)/n_words) if n_words>0 else 0.0
+    upper_ratio = (sum(1 for c in txt if c.isupper())/L) if L>0 else 0.0
+    bangs = float(txt.count('!'))
+    pos = _count_matches(txt, _POS_WORDS)
+    neg = _count_matches(txt, _NEG_WORDS)
 
-# =========================
-# Q7
-# =========================
+    # numeric subscores + ABV (fill missing with 0)
+    def _num(key):
+        v = datum.get(key, 0)
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            v = 0.0
+        return 0.0 if not np.isfinite(v) else v
 
-_word_re = re.compile(r"[a-z]+", re.I)
+    aroma  = _num('review/aroma')
+    taste  = _num('review/taste')
+    palate = _num('review/palate')
+    appear = _num('review/appearance')
+    abv    = _num('beer/ABV')
 
-def _word_counts(s: str):
-    toks = _word_re.findall(s.lower())
-    c = Counter(toks)
-    pos = sum(c[w] for w in POS_WORDS)
-    neg = sum(c[w] for w in NEG_WORDS)
-    return len(toks), pos, neg
-
-def featureQ7(datum: dict) -> List[float]:
-    """
-    Richer feature set to improve over Q5:
-    [1, ABV, char_length, word_count, '!' count, '?' count,
-     positive_lexicon_count, negative_lexicon_count, n_votes, n_comments,
-     weekday_one_hot(7), month_one_hot(12)]
-    """
-    txt = _get_text(datum)
-    dt = _parse_date(datum)
-    n_words, pos_cnt, neg_cnt = _word_counts(txt)
-
-    feats = [
-        1.0,
-        (_abv(datum) or 0.0),
-        float(len(txt)),
-        float(n_words),
-        float(txt.count("!")),
-        float(txt.count("?")),
-        float(pos_cnt),
-        float(neg_cnt),
-        _n_votes(datum),
-        _n_comments(datum),
-    ]
-    feats += _one_hot(_weekday_idx(dt), 7)
-    feats += _one_hot(_month_idx(dt), 12)
-    return feats
+    return np.array([
+        1.0, L, n_words, avg_wlen, upper_ratio, bangs, pos, neg,
+        aroma, taste, palate, appear, abv
+    ], dtype=float)
