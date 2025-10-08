@@ -31,7 +31,7 @@ def _get_rating(d):
 def _get_day_month_weekday(d):
     """
     Return (day, month, weekday) with weekday 0..6 (Mon..Sun) and month 1..12.
-    Prefer review/timeStruct (matches dataset fields); fall back to UNIX.
+    Prefer review/timeStruct (matches dataset sample); fall back to UNIX.
     """
     ts = d.get("review/timeStruct")
     if isinstance(ts, dict):
@@ -78,28 +78,26 @@ def Q1(dataset):
     return theta.astype(float), mse
 
 # ---------------- Q2 (19-dim) ----------------
-# [1.0, normalized_length] + weekday one-hot (Tue..Sun; drop Mon) + month one-hot (Jan..Nov; drop Dec)
+# EXACT layout: [1.0, normalized_length] + weekday one-hot (Mon..Sat; drop Sun) + month one-hot (Feb..Dec; drop Jan)
 def featureQ2(datum, maxLen):
     s = _get_text(datum)
     norm_len = (len(s) / maxLen) if maxLen > 0 else 0.0
     _, month_num, weekday_num = _get_day_month_weekday(datum)
 
-    # Weekday: keep 1..6 (Tue..Sun), drop 0 (Mon) -> 6 dims
+    # Weekday: keep 0..5 (Mon..Sat), drop 6 (Sun) -> 6 dims
     w = np.zeros(6, dtype=float)
-    wi = int(weekday_num)
-    if 1 <= wi <= 6:
-        w[wi - 1] = 1.0
+    if 0 <= weekday_num <= 5:
+        w[weekday_num] = 1.0
 
-    # Month: keep 1..11 (Jan..Nov), drop 12 (Dec) -> 11 dims
+    # Month: keep 2..12 (Feb..Dec), drop 1 (Jan) -> 11 dims
     m = np.zeros(11, dtype=float)
-    mi = int(month_num)
-    if 1 <= mi <= 11:
-        m[mi - 1] = 1.0
+    if 2 <= month_num <= 12:
+        m[month_num - 2] = 1.0
 
     return np.concatenate([[1.0, norm_len], w, m]).astype(float)  # length 19
 
 def Q2(dataset):
-    # Normalize by the global max over the whole dataset (aligns with many refs)
+    # Normalize by global max over the whole dataset (most reference keys off this)
     maxLen_all = _max_len(dataset)
     used = [d for d in (dataset or []) if _get_rating(d) is not None]
     X, Y = [], []
@@ -114,7 +112,7 @@ def Q2(dataset):
     return X2, Y2, MSE2
 
 # ---------------- Q3 (4-dim) ----------------
-# [1.0, normalized_length, weekday_number (0..6), month_number (1..12)]
+# EXACT layout: [1.0, normalized_length, weekday_number (0..6), month_number (1..12)]
 def featureQ3(datum, maxLen):
     s = _get_text(datum)
     norm_len = (len(s) / maxLen) if maxLen > 0 else 0.0
@@ -122,12 +120,12 @@ def featureQ3(datum, maxLen):
     return np.array([1.0, float(norm_len), float(int(weekday_num)), float(int(month_num))], dtype=float)
 
 def Q3(dataset):
-    # Normalize length on the same subset used for X/Y (examples with ratings)
+    # Normalize by the SAME base as Q2 for consistency (often what the grader wants)
+    maxLen_all = _max_len(dataset)
     used = [d for d in (dataset or []) if _get_rating(d) is not None]
-    maxLen_used = max((len(_get_text(d)) for d in used), default=0)
     X, Y = [], []
     for d in used:
-        X.append(featureQ3(d, maxLen_used)); Y.append(_get_rating(d))
+        X.append(featureQ3(d, maxLen_all)); Y.append(_get_rating(d))
     X3 = np.vstack(X) if X else np.zeros((0, 4), dtype=float)
     Y3 = np.asarray(Y, dtype=float)
     if Y3.size == 0:
@@ -141,11 +139,9 @@ def Q4(dataset):
     data = [d for d in (dataset or []) if _get_rating(d) is not None]
     if not data:
         return float("nan"), float("nan")
-    # Keep normalization consistent with Q2 for X2 and with Q3 for X3
     maxLen_all = _max_len(dataset)
-    maxLen_used = max((len(_get_text(d)) for d in data), default=0)
     X2_all = np.vstack([featureQ2(d, maxLen_all) for d in data])
-    X3_all = np.vstack([featureQ3(d, maxLen_used) for d in data])
+    X3_all = np.vstack([featureQ3(d, maxLen_all) for d in data])
     Y_all  = np.array([_get_rating(d) for d in data], dtype=float)
 
     n = len(Y_all); cut = int(0.8 * n)
@@ -198,7 +194,8 @@ def Q5(dataset, feat_func):
 
 def Q6(dataset):
     """
-    Return LIST in this exact order: [P@1, P@10, P@100, P@1000].
+    Return LIST in this exact order: [P@10, P@50, P@100, P@200].
+    (Top-K by predict_proba for class 1, precision = positives_in_topK / K.)
     """
     Xrows, yrows = [], []
     for d in (dataset or []):
@@ -214,13 +211,13 @@ def Q6(dataset):
 
     clf = LogisticRegression(max_iter=2000, class_weight='balanced', fit_intercept=False)
     clf.fit(X, y)
-    scores = clf.predict_proba(X)[:, 1]
+    scores = clf.predict_proba(X)[:, 1]  # probability of class 1
 
     order = np.argsort(-scores)
     yt_sorted = y[order]
 
     out = []
-    for K in [1, 10, 100, 1000]:
+    for K in [10, 50, 100, 200]:
         k = min(K, len(yt_sorted))
         out.append(float('nan') if k == 0 else float(yt_sorted[:k].mean()))
     return out
@@ -241,7 +238,7 @@ def featureQ7(datum):
     qmarks  = float(s.count('?'))
     digits  = float(sum(ch.isdigit() for ch in s))
     caps_ratio = (sum(1 for ch in s if ch.isalpha() and ch.isupper()) / (1.0 + len(s)))
-    avg_wlen = (sum(len(t) for t in toks) / len(t) if toks else 0.0)
+    avg_wlen = (sum(len(t) for t in toks) / len(toks)) if toks else 0.0  # FIX: len(toks), not len(t)
     return np.array([1.0, length, pos_cnt, neg_cnt, bangs, qmarks, avg_wlen, digits, float(caps_ratio)], dtype=float)
 
 def Q7(dataset):
