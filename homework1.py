@@ -31,8 +31,17 @@ def _get_rating(d):
 def _get_day_month_weekday(d):
     """
     Return (day, month, weekday) with weekday 0..6 (Mon..Sun) and month 1..12.
-    Prefer UNIX timestamp (consistent with Python weekday), then fall back to timeStruct.
+    Prefer review/timeStruct (matches the course datasets); fall back to UNIX.
     """
+    ts = d.get("review/timeStruct")
+    if isinstance(ts, dict):
+        try:
+            day = int(ts.get("mday", 0) or 0)
+            mon = int(ts.get("mon", 0) or 0)
+            wdy = int(ts.get("wday", 0) or 0)  # 0=Mon..6=Sun in the homework data
+            return day, mon, wdy
+        except Exception:
+            pass
     for k in ("review/timeUnix", "review/time"):
         if k in d and d[k] is not None:
             try:
@@ -40,15 +49,6 @@ def _get_day_month_weekday(d):
                 return dt.day, dt.month, dt.weekday()
             except Exception:
                 pass
-    ts = d.get("review/timeStruct")
-    if isinstance(ts, dict):
-        try:
-            day = int(ts.get("mday", 0) or 0)
-            mon = int(ts.get("mon", 0) or 0)
-            wdy = int(ts.get("wday", 0) or 0)  # 0=Mon..6=Sun per your sample
-            return day, mon, wdy
-        except Exception:
-            pass
     return 0, 0, 0
 
 def _max_len(dataset):
@@ -78,29 +78,28 @@ def Q1(dataset):
     return theta.astype(float), mse
 
 # ---------------- Q2 (19-dim) ----------------
-# [1.0, normalized_length] + weekday one-hot (Mon..Sat; drop Sun) + month one-hot (Jan..Nov; drop Dec)
+# [1.0, norm_len] + weekday one-hot (Tue..Sun; drop Mon) + month one-hot (Feb..Dec; drop Jan)
 def featureQ2(datum, maxLen):
     s = _get_text(datum)
     norm_len = (len(s) / maxLen) if maxLen > 0 else 0.0
     _, month_num, weekday_num = _get_day_month_weekday(datum)
 
-    # Weekday: keep 0..5 (Mon..Sat), drop 6 (Sun) -> 6 dims
+    # Weekday: keep 1..6 (Tue..Sun), drop 0 (Mon) -> 6 dims
     w = np.zeros(6, dtype=float)
     wi = int(weekday_num)
-    if 0 <= wi <= 5:
-        w[wi] = 1.0
+    if 1 <= wi <= 6:
+        w[wi - 1] = 1.0
 
-    # Month: keep 1..11 (Jan..Nov), drop 12 (Dec) -> 11 dims
+    # Month: keep 2..12 (Feb..Dec), drop 1 (Jan) -> 11 dims
     m = np.zeros(11, dtype=float)
     mi = int(month_num)
-    if 1 <= mi <= 11:
-        m[mi - 1] = 1.0
+    if 2 <= mi <= 12:
+        m[mi - 2] = 1.0
 
     return np.concatenate([[1.0, norm_len], w, m]).astype(float)  # length 19
 
 def Q2(dataset):
-    # normalize by max over the WHOLE dataset
-    maxLen_all = _max_len(dataset)
+    maxLen_all = _max_len(dataset)  # normalize by global max length
     used = [d for d in (dataset or []) if _get_rating(d) is not None]
     X, Y = [], []
     for d in used:
@@ -114,7 +113,7 @@ def Q2(dataset):
     return X2, Y2, MSE2
 
 # ---------------- Q3 (4-dim) ----------------
-# [1.0, normalized_length, weekday_number (0..6), month_number (1..12)]
+# [1.0, norm_len, weekday_number (0..6), month_number (1..12)]
 def featureQ3(datum, maxLen):
     s = _get_text(datum)
     norm_len = (len(s) / maxLen) if maxLen > 0 else 0.0
@@ -122,7 +121,7 @@ def featureQ3(datum, maxLen):
     return np.array([1.0, float(norm_len), float(int(weekday_num)), float(int(month_num))], dtype=float)
 
 def Q3(dataset):
-    # Normalize by the SAME base as Q2 for consistency
+    # match Q2’s normalization base (global max length)
     maxLen_all = _max_len(dataset)
     used = [d for d in (dataset or []) if _get_rating(d) is not None]
     X, Y = [], []
@@ -196,8 +195,8 @@ def Q5(dataset, feat_func):
 
 def Q6(dataset):
     """
-    Return LIST in this exact order: [P@1, P@10, P@100, P@1000].
-    Rank examples by predict_proba for class 1 (descending).
+    Return precision@K as a LIST in this exact order: [P@10, P@50, P@100, P@200].
+    Ranked by predict_proba for class 1 (descending).
     """
     Xrows, yrows = [], []
     for d in (dataset or []):
@@ -219,7 +218,7 @@ def Q6(dataset):
     yt_sorted = y[order]
 
     out = []
-    for K in [1, 10, 100, 1000]:
+    for K in [10, 50, 100, 200]:
         k = min(K, len(yt_sorted))
         out.append(float('nan') if k == 0 else float(yt_sorted[:k].mean()))
     return out
