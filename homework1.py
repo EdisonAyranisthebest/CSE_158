@@ -30,7 +30,7 @@ def _get_rating(d):
 
 def _get_day_month_weekday(d):
     """
-    Prefer timeStruct (matches dataset-calculated weekday/month),
+    Prefer timeStruct (matches dataset-calculated weekday/month);
     else fall back to UNIX timestamp. Return (day, month, weekday)
     with weekday 0..6 (Mon..Sun) and month 1..12.
     """
@@ -39,7 +39,7 @@ def _get_day_month_weekday(d):
         try:
             day = float(ts.get("mday", 0) or 0)
             mon = float(ts.get("mon", 0) or 0)
-            wdy = float(ts.get("wday", 0) or 0)  # 0=Mon..6=Sun
+            wdy = float(ts.get("wday", 0) or 0)
             return day, mon, wdy
         except Exception:
             pass
@@ -80,23 +80,19 @@ def Q1(dataset):
     return theta.astype(float), mse
 
 # ---------------- Q2 (19-dim) ----------------
-# EXACT layout (to match grader):
-#   [1.0, normalized_length]  -> 2 dims
-#   weekday one-hot for Tue..Sun (drop Monday) -> 6 dims
-#   month   one-hot for Feb..Dec (drop January) -> 11 dims
-# Total = 19
+# EXACT layout: [1.0, normalized_length] + weekday one-hot (Tue..Sun; drop Mon) + month one-hot (Feb..Dec; drop Jan)
 def featureQ2(datum, maxLen):
     s = _get_text(datum)
     norm_len = (len(s) / maxLen) if maxLen > 0 else 0.0
     _, month_num, weekday_num = _get_day_month_weekday(datum)
 
-    # Weekday: drop Monday (0), keep 1..6 -> index 0..5 in vector
+    # Weekday: keep 1..6 (Tue..Sun), drop 0 (Mon)
     w = np.zeros(6, dtype=float)
     wi = int(weekday_num)
     if 1 <= wi <= 6:
         w[wi - 1] = 1.0
 
-    # Month: drop January (1), keep 2..12 -> index 0..10
+    # Month: keep 2..12 (Feb..Dec), drop 1 (Jan)
     m = np.zeros(11, dtype=float)
     mi = int(month_num)
     if 2 <= mi <= 12:
@@ -121,7 +117,7 @@ def Q2(dataset):
     return X2, Y2, MSE2
 
 # ---------------- Q3 (4-dim) ----------------
-# EXACT layout per Piazza: [1.0, normalized_length, weekday_number, month_number]
+# EXACT layout: [1.0, normalized_length, weekday_number (0..6), month_number (1..12)]
 def featureQ3(datum, maxLen):
     s = _get_text(datum)
     norm_len = (len(s) / maxLen) if maxLen > 0 else 0.0
@@ -203,7 +199,9 @@ def Q5(dataset, feat_func):
     return TP, TN, FP, FN, BER
 
 def Q6(dataset):
-    # Return LIST [P@10, P@50, P@100, P@200]; train/eval on full set (like Q5)
+    """
+    Return a LIST [P@1, P@10, P@100, P@1000].
+    """
     Xrows, yrows = [], []
     for d in (dataset or []):
         lab = _label_ge4(d)
@@ -223,11 +221,11 @@ def Q6(dataset):
     order = np.argsort(-scores)
     yt_sorted = y[order]
 
-    precs = []
-    for K in [10, 50, 100, 200]:
+    out = []
+    for K in [1, 10, 100, 1000]:
         k = min(K, len(yt_sorted))
-        precs.append(float('nan') if k == 0 else float(yt_sorted[:k].mean()))
-    return precs
+        out.append(float('nan') if k == 0 else float(yt_sorted[:k].mean()))
+    return out
 
 def featureQ7(datum):
     s = _get_text(datum)
