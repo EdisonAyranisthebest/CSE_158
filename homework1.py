@@ -33,9 +33,9 @@ def _get_day_month_weekday(d):
     ts = d.get("review/timeStruct")
     if isinstance(ts, dict):
         try:
-            day = float(ts.get("mday", 0) or 0)
-            mon = float(ts.get("mon", 0) or 0)
-            wdy = float(ts.get("wday", 0) or 0)  # 0=Mon..6=Sun
+            day = int(ts.get("mday", 0) or 0)
+            mon = int(ts.get("mon", 0) or 0)
+            wdy = int(ts.get("wday", 0) or 0)  # 0=Mon..6=Sun
             return day, mon, wdy
         except Exception:
             pass
@@ -43,10 +43,10 @@ def _get_day_month_weekday(d):
         if k in d and d[k] is not None:
             try:
                 dt = datetime.datetime.fromtimestamp(int(d[k]))
-                return float(dt.day), float(dt.month), float(dt.weekday())
+                return dt.day, dt.month, dt.weekday()
             except Exception:
                 pass
-    return 0.0, 0.0, 0.0
+    return 0, 0, 0
 
 # ---------------- Q1 ----------------
 def featureQ1(datum, maxLen):
@@ -77,15 +77,13 @@ def featureQ2(datum, maxLen):
 
     # Weekday: keep 1..6 (Tue..Sun), drop 0 (Mon)
     w = np.zeros(6, dtype=float)
-    wi = int(weekday_num)
-    if 1 <= wi <= 6:
-        w[wi - 1] = 1.0
+    if 1 <= weekday_num <= 6:
+        w[weekday_num - 1] = 1.0
 
     # Month: keep 2..12 (Feb..Dec), drop 1 (Jan)
     m = np.zeros(11, dtype=float)
-    mi = int(month_num)
-    if 2 <= mi <= 12:
-        m[mi - 2] = 1.0
+    if 2 <= month_num <= 12:
+        m[month_num - 2] = 1.0
 
     return np.concatenate([[1.0, norm_len], w, m]).astype(float)  # length 19
 
@@ -109,7 +107,7 @@ def featureQ3(datum, maxLen):
     s = _get_text(datum)
     norm_len = (len(s) / maxLen) if maxLen > 0 else 0.0
     _, month_num, weekday_num = _get_day_month_weekday(datum)
-    return np.array([1.0, float(norm_len), float(weekday_num), float(month_num)], dtype=float)
+    return np.array([1.0, float(norm_len), float(int(weekday_num)), float(int(month_num))], dtype=float)
 
 def Q3(dataset):
     used = [d for d in (dataset or []) if _get_rating(d) is not None]
@@ -185,7 +183,7 @@ def Q5(dataset, feat_func):
 
 def Q6(dataset):
     """
-    Return LIST [P@10, P@50, P@100, P@200] on the full set (same model as Q5).
+    Return LIST [P@1, P@10, P@100, P@1000] on the full set (same model as Q5).
     """
     Xrows, yrows = [], []
     for d in (dataset or []):
@@ -207,7 +205,7 @@ def Q6(dataset):
     yt_sorted = y[order]
 
     out = []
-    for K in [10, 50, 100, 200]:
+    for K in [1, 10, 100, 1000]:
         k = min(K, len(yt_sorted))
         out.append(float('nan') if k == 0 else float(yt_sorted[:k].mean()))
     return out
