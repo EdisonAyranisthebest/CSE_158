@@ -75,7 +75,7 @@ def Q1(dataset):
     return theta.astype(float), mse
 
 # ---------------- Q2 (19-dim) ----------------
-# [1.0, normalized_length] + weekday one-hot (Mon..Sat; drop Sun) + month one-hot (Jan..Nov; drop Dec)
+# EXACT: [1.0, normalized_length] + weekday one-hot (Mon..Sat; drop Sun) + month one-hot (Jan..Nov; drop Dec)
 def featureQ2(datum, maxLen):
     s = _get_text(datum)
     norm_len = (len(s) / maxLen) if maxLen > 0 else 0.0
@@ -94,7 +94,7 @@ def featureQ2(datum, maxLen):
     return np.concatenate([[1.0, norm_len], w, m]).astype(float)  # length 19
 
 def Q2(dataset):
-    # normalize by max over the WHOLE dataset
+    # Normalize by GLOBAL max length (whole dataset)
     maxLen_all = getMaxLen(dataset)
     used = [d for d in (dataset or []) if _get_rating(d) is not None]
     X, Y = [], []
@@ -109,17 +109,17 @@ def Q2(dataset):
     return X2, Y2, MSE2
 
 # ---------------- Q3 (4-dim) ----------------
-# [1.0, normalized length, weekday_number (0..6), month_number (1..12)]
+# EXACT: [1.0, normalized_length, month_number (1..12), weekday_number (0..6)]
 def featureQ3(datum, maxLen):
     s = _get_text(datum)
     norm_len = (len(s) / maxLen) if maxLen > 0 else 0.0
     _, month_num, weekday_num = _get_day_month_weekday(datum)
-    return np.array([1.0, float(norm_len), float(int(weekday_num)), float(int(month_num))], dtype=float)
+    return np.array([1.0, float(norm_len), float(int(month_num)), float(int(weekday_num))], dtype=float)
 
 def Q3(dataset):
-    used = [d for d in (dataset or []) if _get_rating(d) is not None]
-    # use same normalization base as Q2 to stay consistent
+    # normalize by GLOBAL max length as well (consistent with Q2)
     maxLen_all = getMaxLen(dataset)
+    used = [d for d in (dataset or []) if _get_rating(d) is not None]
     X, Y = [], []
     for d in used:
         X.append(featureQ3(d, maxLen_all)); Y.append(_get_rating(d))
@@ -191,7 +191,7 @@ def Q5(dataset, feat_func):
 
 def Q6(dataset):
     """
-    Return LIST in this order: [P@1, P@10, P@100, P@1000].
+    Return LIST exactly as: [P@1, P@10, P@100, P@1000].
     """
     Xrows, yrows = [], []
     for d in (dataset or []):
