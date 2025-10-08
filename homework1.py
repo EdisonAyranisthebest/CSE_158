@@ -62,11 +62,11 @@ def featureQ1(datum, maxLen):
 
 def Q1(dataset):
     used = [d for d in (dataset or []) if _get_rating(d) is not None]
-    # Q1 can keep maxLen from the used set
     maxLen = max((len(_get_text(d)) for d in used), default=0)
     X, y = [], []
     for d in used:
-        X.append(featureQ1(d, maxLen)); y.append(_get_rating(d))
+        X.append(featureQ1(d, maxLen))
+        y.append(_get_rating(d))
     if not X:
         return np.array([0.0, 0.0], dtype=float), float("nan")
     X = np.vstack(X).astype(float); y = np.asarray(y, dtype=float)
@@ -75,26 +75,26 @@ def Q1(dataset):
     return theta.astype(float), mse
 
 # ---------------- Q2 (19-dim) ----------------
-# [1.0, normalized_length] + weekday one-hot (Tue..Sun; drop Mon) + month one-hot (Feb..Dec; drop Jan)
+# [1.0, normalized_length] + weekday one-hot (Mon..Sat; drop Sun) + month one-hot (Jan..Nov; drop Dec)
 def featureQ2(datum, maxLen):
     s = _get_text(datum)
     norm_len = (len(s) / maxLen) if maxLen > 0 else 0.0
     _, month_num, weekday_num = _get_day_month_weekday(datum)
 
-    # Weekday: keep 1..6 (Tue..Sun), drop 0 (Mon)
+    # Weekday: keep 0..5 (Mon..Sat), drop 6 (Sun)
     w = np.zeros(6, dtype=float)
-    if 1 <= weekday_num <= 6:
-        w[weekday_num - 1] = 1.0
+    if 0 <= weekday_num <= 5:
+        w[weekday_num] = 1.0
 
-    # Month: keep 2..12 (Feb..Dec), drop 1 (Jan)
+    # Month: keep 1..11 (Jan..Nov), drop 12 (Dec)
     m = np.zeros(11, dtype=float)
-    if 2 <= month_num <= 12:
-        m[month_num - 2] = 1.0
+    if 1 <= month_num <= 11:
+        m[month_num - 1] = 1.0
 
     return np.concatenate([[1.0, norm_len], w, m]).astype(float)  # length 19
 
 def Q2(dataset):
-    # IMPORTANT: normalize by max length over the WHOLE dataset (matches grader)
+    # normalize by max over the WHOLE dataset
     maxLen_all = getMaxLen(dataset)
     used = [d for d in (dataset or []) if _get_rating(d) is not None]
     X, Y = [], []
@@ -109,19 +109,20 @@ def Q2(dataset):
     return X2, Y2, MSE2
 
 # ---------------- Q3 (4-dim) ----------------
-# [1.0, RAW length, weekday_number (0..6), month_number (1..12)]
-def featureQ3(datum, _maxLen_unused):
+# [1.0, normalized length, weekday_number (0..6), month_number (1..12)]
+def featureQ3(datum, maxLen):
     s = _get_text(datum)
-    raw_len = float(len(s))
+    norm_len = (len(s) / maxLen) if maxLen > 0 else 0.0
     _, month_num, weekday_num = _get_day_month_weekday(datum)
-    return np.array([1.0, raw_len, float(int(weekday_num)), float(int(month_num))], dtype=float)
+    return np.array([1.0, float(norm_len), float(int(weekday_num)), float(int(month_num))], dtype=float)
 
 def Q3(dataset):
     used = [d for d in (dataset or []) if _get_rating(d) is not None]
-    # maxLen not used in featureQ3 (raw length), but keep signature consistent
+    # use same normalization base as Q2 to stay consistent
+    maxLen_all = getMaxLen(dataset)
     X, Y = [], []
     for d in used:
-        X.append(featureQ3(d, 0)); Y.append(_get_rating(d))
+        X.append(featureQ3(d, maxLen_all)); Y.append(_get_rating(d))
     X3 = np.vstack(X) if X else np.zeros((0, 4), dtype=float)
     Y3 = np.asarray(Y, dtype=float)
     if Y3.size == 0:
@@ -135,10 +136,9 @@ def Q4(dataset):
     data = [d for d in (dataset or []) if _get_rating(d) is not None]
     if not data:
         return float("nan"), float("nan")
-    # use the same maxLen as Q2 (whole dataset) for consistency
     maxLen_all = getMaxLen(dataset)
     X2_all = np.vstack([featureQ2(d, maxLen_all) for d in data])
-    X3_all = np.vstack([featureQ3(d, 0) for d in data])  # raw len
+    X3_all = np.vstack([featureQ3(d, maxLen_all) for d in data])
     Y_all  = np.array([_get_rating(d) for d in data], dtype=float)
 
     n = len(Y_all); cut = int(0.8 * n)
@@ -158,7 +158,7 @@ def featureQ5(datum):
 
 def _label_ge4(d):
     r = _get_rating(d)
-    if r is None: 
+    if r is None:
         return None
     return 1 if r >= 4.0 else 0
 
@@ -191,7 +191,7 @@ def Q5(dataset, feat_func):
 
 def Q6(dataset):
     """
-    Return LIST in this exact order: [P@10, P@50, P@100, P@200].
+    Return LIST in this order: [P@1, P@10, P@100, P@1000].
     """
     Xrows, yrows = [], []
     for d in (dataset or []):
@@ -213,7 +213,7 @@ def Q6(dataset):
     yt_sorted = y[order]
 
     out = []
-    for K in [10, 50, 100, 200]:
+    for K in [1, 10, 100, 1000]:
         k = min(K, len(yt_sorted))
         out.append(float('nan') if k == 0 else float(yt_sorted[:k].mean()))
     return out
