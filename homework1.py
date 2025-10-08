@@ -3,11 +3,11 @@ from numpy.linalg import lstsq
 from sklearn.linear_model import LogisticRegression
 import datetime
 
-# ===== knobs you can flip quickly if the grader expects a different convention =====
-DROP_MONDAY = True    # if False -> drops Sunday instead (keeps Mon..Sat)
-DROP_JANUARY = True   # if False -> drops December instead (keeps Jan..Nov)
-K_LIST = [10, 50, 100, 200]   # precision@K order
-# ===================================================================================
+# try to use dateutil for robust string parsing (falls back cleanly if missing)
+try:
+    from dateutil import parser as _dateparser
+except Exception:
+    _dateparser = None
 
 # ---------------- helpers ----------------
 def _get_text(d):
@@ -34,27 +34,57 @@ def _get_rating(d):
             return None
     return None
 
+def _parse_string_time(s):
+    """Best-effort parse for string timestamps."""
+    if s is None:
+        return None
+    # unix given as a string?
+    try:
+        if str(s).isdigit():
+            return datetime.datetime.fromtimestamp(int(s))
+    except Exception:
+        pass
+    # general string like '02/16/2009' etc.
+    if _dateparser is not None:
+        try:
+            return _dateparser.parse(str(s))
+        except Exception:
+            return None
+    # minimal fallback: try common formats
+    for fmt in ("%m/%d/%Y", "%Y-%m-%d", "%d-%b-%Y"):
+        try:
+            return datetime.datetime.strptime(str(s), fmt)
+        except Exception:
+            pass
+    return None
+
 def _get_day_month_weekday(d):
     """
     Return (day, month, weekday) with weekday 0..6 (Mon..Sun) and month 1..12.
-    Prefer review/timeStruct (matches hw data); fall back to UNIX timestamp.
+    Prefer review/timeStruct; fall back to UNIX then string review/time.
     """
     ts = d.get("review/timeStruct")
     if isinstance(ts, dict):
         try:
             day = int(ts.get("mday", 0) or 0)
             mon = int(ts.get("mon", 0) or 0)
-            wdy = int(ts.get("wday", 0) or 0)  # 0=Mon..6=Sun in provided sample
+            wdy = int(ts.get("wday", 0) or 0)  # 0=Mon..6=Sun (matches sample)
             return day, mon, wdy
         except Exception:
             pass
+
     for k in ("review/timeUnix", "review/time"):
         if k in d and d[k] is not None:
+            # unix?
             try:
                 dt = datetime.datetime.fromtimestamp(int(d[k]))
                 return dt.day, dt.month, dt.weekday()
             except Exception:
-                pass
+                # maybe a string time (e.g., '02/16/2009')
+                dt = _parse_string_time(d[k])
+                if dt is not None:
+                    return dt.day, dt.month, dt.weekday()
+
     return 0, 0, 0
 
 def _max_len(dataset):
@@ -84,37 +114,25 @@ def Q1(dataset):
     return theta.astype(float), mse
 
 # ---------------- Q2 (19-dim) ----------------
-# [1, norm_len] + weekday one-hot + month one-hot (drop one of each)
+# [1, norm_len] + weekday one-hot (drop Monday) + month one-hot (drop January)
 def featureQ2(datum, maxLen):
     s = _get_text(datum)
     norm_len = (len(s) / maxLen) if maxLen > 0 else 0.0
     _, month_num, weekday_num = _get_day_month_weekday(datum)
 
-    # Weekday 6 dims
+    # Weekday: keep Tue..Sun (1..6), drop Monday(0) -> 6 dims
     w = np.zeros(6, dtype=float)
     wi = int(weekday_num)
-    if DROP_MONDAY:
-        # keep Tue..Sun -> indices 1..6 map to 0..5
-        if 1 <= wi <= 6:
-            w[wi - 1] = 1.0
-    else:
-        # keep Mon..Sat -> indices 0..5 map to 0..5 (drop Sun)
-        if 0 <= wi <= 5:
-            w[wi] = 1.0
+    if 1 <= wi <= 6:
+        w[wi - 1] = 1.0
 
-    # Month 11 dims
+    # Month: keep Feb..Dec (2..12), drop January(1) -> 11 dims
     m = np.zeros(11, dtype=float)
     mi = int(month_num)
-    if DROP_JANUARY:
-        # keep Feb..Dec -> 2..12 map to 0..10
-        if 2 <= mi <= 12:
-            m[mi - 2] = 1.0
-    else:
-        # keep Jan..Nov -> 1..11 map to 0..10 (drop Dec)
-        if 1 <= mi <= 11:
-            m[mi - 1] = 1.0
+    if 2 <= mi <= 12:
+        m[mi - 2] = 1.0
 
-    return np.concatenate([[1.0, norm_len], w, m]).astype(float)  # length 19
+    return np.concatenate([[1.0, norm_len], w, m]).astype(float)
 
 def Q2(dataset):
     maxLen_all = _max_len(dataset)  # normalize by global max
@@ -131,7 +149,7 @@ def Q2(dataset):
     return X2, Y2, MSE2
 
 # ---------------- Q3 (4-dim) ----------------
-# [1, norm_len, weekday_number, month_number]  (weekday first, then month)
+# [1, norm_len, weekday_number (0..6), month_number (1..12)]
 def featureQ3(datum, maxLen):
     s = _get_text(datum)
     norm_len = (len(s) / maxLen) if maxLen > 0 else 0.0
@@ -162,7 +180,7 @@ def Q4(dataset):
     X3_all = np.vstack([featureQ3(d, maxLen_all) for d in data])
     Y_all  = np.array([_get_rating(d) for d in data], dtype=float)
 
-    n = len(Y_all); cut = int(0.8 * n)  # runner already shuffles
+    n = len(Y_all); cut = int(0.8 * n)  # runner shuffles upstream
     X2_tr, X2_te, y_tr, y_te = X2_all[:cut], X2_all[cut:], Y_all[:cut], Y_all[cut:]
     X3_tr, X3_te = X3_all[:cut], X3_all[cut:]
 
@@ -212,8 +230,10 @@ def Q5(dataset, feat_func):
 
 def Q6(dataset):
     """
-    Return precision@K for K in K_LIST as a list, ranked by predict_proba(class=1).
+    Return precision@[1, 10, 100, 1000] as a list (in this order),
+    ranked by predict_proba(class=1) descending.
     """
+    Ks = [1, 10, 100, 1000]
     Xrows, yrows = [], []
     for d in (dataset or []):
         lab = _label_ge4(d)
@@ -221,7 +241,7 @@ def Q6(dataset):
             continue
         Xrows.append(featureQ5(d)); yrows.append(lab)
     if not Xrows:
-        return [float('nan')] * len(K_LIST)
+        return [float('nan')] * len(Ks)
 
     X = np.vstack(Xrows).astype(float)
     y = np.asarray(yrows, dtype=int)
@@ -229,14 +249,13 @@ def Q6(dataset):
     clf = LogisticRegression(max_iter=2000, class_weight='balanced', fit_intercept=False)
     clf.fit(X, y)
     scores = clf.predict_proba(X)[:, 1]
-
     order = np.argsort(-scores)
-    yt_sorted = y[order]
+    y_sorted = y[order]
 
     out = []
-    for K in K_LIST:
-        k = min(K, len(yt_sorted))
-        out.append(float('nan') if k == 0 else float(np.mean(yt_sorted[:k])))
+    for K in Ks:
+        k = min(K, len(y_sorted))
+        out.append(float('nan') if k == 0 else float(np.mean(y_sorted[:k])))
     return out
 
 def featureQ7(datum):
