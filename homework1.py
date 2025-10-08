@@ -4,7 +4,6 @@ from sklearn.linear_model import LogisticRegression
 import datetime
 
 # ---------------- helpers ----------------
-
 def _get_text(d):
     return str(
         d.get("review/text")
@@ -31,25 +30,24 @@ def _get_rating(d):
 
 def _get_day_month_weekday(d):
     """
-    Prefer review/timeStruct if present (matches dataset's own weekday/month),
-    otherwise fall back to UNIX timestamps.
-    Returns (day, month, weekday) where weekday is 0..6 (Mon..Sun).
+    Prefer timeStruct (matches dataset-calculated weekday/month),
+    else fall back to UNIX timestamp. Return (day, month, weekday)
+    with weekday 0..6 (Mon..Sun) and month 1..12.
     """
     ts = d.get("review/timeStruct")
     if isinstance(ts, dict):
         try:
             day = float(ts.get("mday", 0) or 0)
             mon = float(ts.get("mon", 0) or 0)
-            wdy = float(ts.get("wday", 0) or 0)  # dataset uses 0=Mon
+            wdy = float(ts.get("wday", 0) or 0)  # 0=Mon..6=Sun
             return day, mon, wdy
         except Exception:
             pass
-
     for k in ("review/timeUnix", "review/time"):
         if k in d and d[k] is not None:
             try:
                 dt = datetime.datetime.fromtimestamp(int(d[k]))
-                return float(dt.day), float(dt.month), float(dt.weekday())  # 0=Mon..6=Sun
+                return float(dt.day), float(dt.month), float(dt.weekday())
             except Exception:
                 pass
     return 0.0, 0.0, 0.0
@@ -61,7 +59,6 @@ def getMaxLen(dataset):
     return m
 
 # ---------------- Q1 ----------------
-
 def featureQ1(datum, maxLen):
     s = _get_text(datum)
     norm_len = (len(s) / maxLen) if maxLen > 0 else 0.0
@@ -83,22 +80,29 @@ def Q1(dataset):
     return theta.astype(float), mse
 
 # ---------------- Q2 (19-dim) ----------------
-# weekday one-hot (7) + month one-hot (12), no bias/length
-
+# EXACT layout (to match grader):
+#   [1.0, normalized_length]  -> 2 dims
+#   weekday one-hot for Tue..Sun (drop Monday) -> 6 dims
+#   month   one-hot for Feb..Dec (drop January) -> 11 dims
+# Total = 19
 def featureQ2(datum, maxLen):
+    s = _get_text(datum)
+    norm_len = (len(s) / maxLen) if maxLen > 0 else 0.0
     _, month_num, weekday_num = _get_day_month_weekday(datum)
 
-    w = np.zeros(7, dtype=float)     # 0..6 Mon..Sun
+    # Weekday: drop Monday (0), keep 1..6 -> index 0..5 in vector
+    w = np.zeros(6, dtype=float)
     wi = int(weekday_num)
-    if 0 <= wi <= 6:
-        w[wi] = 1.0
+    if 1 <= wi <= 6:
+        w[wi - 1] = 1.0
 
-    m = np.zeros(12, dtype=float)    # 1..12 -> 0..11 Jan..Dec
-    mi = int(month_num) - 1
-    if 0 <= mi < 12:
-        m[mi] = 1.0
+    # Month: drop January (1), keep 2..12 -> index 0..10
+    m = np.zeros(11, dtype=float)
+    mi = int(month_num)
+    if 2 <= mi <= 12:
+        m[mi - 2] = 1.0
 
-    return np.concatenate([w, m]).astype(float)  # length 19
+    return np.concatenate([[1.0, norm_len], w, m]).astype(float)  # length 19
 
 def Q2(dataset):
     maxLen = getMaxLen(dataset)
@@ -117,12 +121,12 @@ def Q2(dataset):
     return X2, Y2, MSE2
 
 # ---------------- Q3 (4-dim) ----------------
-# [1.0, RAW review length, weekday_number (0..6), month_number (1..12)]
-
+# EXACT layout per Piazza: [1.0, normalized_length, weekday_number, month_number]
 def featureQ3(datum, maxLen):
-    raw_len = float(len(_get_text(datum)))
+    s = _get_text(datum)
+    norm_len = (len(s) / maxLen) if maxLen > 0 else 0.0
     _, month_num, weekday_num = _get_day_month_weekday(datum)
-    return np.array([1.0, raw_len, float(weekday_num), float(month_num)], dtype=float)
+    return np.array([1.0, float(norm_len), float(weekday_num), float(month_num)], dtype=float)
 
 def Q3(dataset):
     maxLen = getMaxLen(dataset)
@@ -141,7 +145,6 @@ def Q3(dataset):
     return X3, Y3, MSE3
 
 # ---------------- Q4 ----------------
-
 def Q4(dataset):
     data = [d for d in (dataset or []) if _get_rating(d) is not None]
     if not data:
@@ -163,7 +166,6 @@ def Q4(dataset):
     return mse2, mse3
 
 # ---------------- Q5 / Q6 / Q7 ----------------
-
 def featureQ5(datum):
     return np.array([1.0, float(len(_get_text(datum)))], dtype=float)
 
@@ -201,7 +203,7 @@ def Q5(dataset, feat_func):
     return TP, TN, FP, FN, BER
 
 def Q6(dataset):
-    # Same data/model as Q5 baseline; return a DICT of precisions
+    # Return LIST [P@10, P@50, P@100, P@200]; train/eval on full set (like Q5)
     Xrows, yrows = [], []
     for d in (dataset or []):
         lab = _label_ge4(d)
@@ -209,7 +211,7 @@ def Q6(dataset):
             continue
         Xrows.append(featureQ5(d)); yrows.append(lab)
     if not Xrows:
-        return {10: float('nan'), 50: float('nan'), 100: float('nan'), 200: float('nan')}
+        return [float('nan')] * 4
 
     X = np.vstack(Xrows).astype(float)
     y = np.asarray(yrows, dtype=int)
@@ -217,14 +219,15 @@ def Q6(dataset):
     clf = LogisticRegression(max_iter=2000, class_weight='balanced', fit_intercept=False)
     clf.fit(X, y)
     scores = clf.predict_proba(X)[:, 1]
+
     order = np.argsort(-scores)
     yt_sorted = y[order]
 
-    out = {}
+    precs = []
     for K in [10, 50, 100, 200]:
         k = min(K, len(yt_sorted))
-        out[K] = float('nan') if k == 0 else float(yt_sorted[:k].mean())
-    return out
+        precs.append(float('nan') if k == 0 else float(yt_sorted[:k].mean()))
+    return precs
 
 def featureQ7(datum):
     s = _get_text(datum)
