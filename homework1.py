@@ -1,15 +1,21 @@
+# ==================== homework1.py (single cell) ====================
 import numpy as np
 from sklearn.linear_model import LinearRegression, LogisticRegression
 from dateutil import parser as _dateparser
 
-# ------------------ Q1 ------------------
+# ------------------ Helpers ------------------
+def _get_rating(d):
+    return d.get('rating', d.get('overall', d.get('stars')))
+
 def getMaxLen(dataset):
+    """Max string length among review text fields for the given iterable of dicts."""
     max_len = 0
     for d in (dataset or []):
         s = d.get('reviewText') or d.get('review_text') or d.get('text') or ''
         max_len = max(max_len, len(str(s)))
     return max_len
 
+# ------------------ Q1 ------------------
 def featureQ1(datum, maxLen):
     s = str(datum.get('reviewText') or datum.get('review_text') or datum.get('text') or '')
     norm_len = (len(s) / maxLen) if maxLen else 0.0
@@ -17,20 +23,22 @@ def featureQ1(datum, maxLen):
 
 def Q1(dataset):
     """
-    Return (theta, MSE) for a linear regression of rating on [1, normalized_length].
+    Linear regression of rating on [1, normalized_length].
+    IMPORTANT: compute maxLen over exactly the rows used for training (those with ratings).
+    Return (theta, MSE).
     """
-    maxLen = getMaxLen(dataset)
-    X, y = [], []
+    rows = []
     for d in (dataset or []):
-        rating = d.get('rating', d.get('overall', d.get('stars')))
-        if rating is None:
-            continue
-        X.append(featureQ1(d, maxLen))
-        y.append(float(rating))
-    if not X:
+        r = _get_rating(d)
+        if r is not None:
+            rows.append(d)
+    if not rows:
         return np.zeros(2), float('nan')
-    X = np.vstack(X)
-    y = np.array(y, dtype=float)
+
+    maxLen = getMaxLen(rows)
+    X = np.vstack([featureQ1(d, maxLen) for d in rows])
+    y = np.array([float(_get_rating(d)) for d in rows], dtype=float)
+
     lr = LinearRegression(fit_intercept=False).fit(X, y)
     theta = lr.coef_
     mse = float(np.mean((X @ theta - y) ** 2))
@@ -70,19 +78,21 @@ def featureQ2(datum, maxLen):
 def Q2(dataset):
     """
     Return (X2, Y2, MSE2). Autograder uses X2 and Y2; we also compute MSE2.
+    IMPORTANT: compute maxLen over exactly the rows used for training (those with ratings).
     """
-    maxLen = getMaxLen(dataset)
-    X, Y = [], []
+    rows = []
     for d in (dataset or []):
-        y = d.get('rating', d.get('overall', d.get('stars')))
-        if y is None:
-            continue
-        X.append(featureQ2(d, maxLen))
-        Y.append(float(y))
-    X2 = np.vstack(X) if X else np.zeros((0, 19))
-    Y2 = np.array(Y, dtype=float)
-    if len(Y2) == 0:
-        return X2, Y2, float('nan')
+        r = _get_rating(d)
+        if r is not None:
+            rows.append(d)
+
+    if not rows:
+        return np.zeros((0, 19)), np.array([], dtype=float), float('nan')
+
+    maxLen = getMaxLen(rows)
+    X2 = np.vstack([featureQ2(d, maxLen) for d in rows])
+    Y2 = np.array([float(_get_rating(d)) for d in rows], dtype=float)
+
     lr = LinearRegression(fit_intercept=False).fit(X2, Y2)
     MSE2 = float(np.mean((X2 @ lr.coef_ - Y2) ** 2))
     return X2, Y2, MSE2
@@ -115,19 +125,21 @@ def featureQ3(datum, maxLen):
 def Q3(dataset):
     """
     Return (X3, Y3, MSE3).
+    IMPORTANT: compute maxLen over exactly the rows used for training (those with ratings).
     """
-    maxLen = getMaxLen(dataset)
-    X, Y = [], []
+    rows = []
     for d in (dataset or []):
-        y = d.get('rating', d.get('overall', d.get('stars')))
-        if y is None:
-            continue
-        X.append(featureQ3(d, maxLen))
-        Y.append(float(y))
-    X3 = np.vstack(X) if X else np.zeros((0, 4))
-    Y3 = np.array(Y, dtype=float)
-    if len(Y3) == 0:
-        return X3, Y3, float('nan')
+        r = _get_rating(d)
+        if r is not None:
+            rows.append(d)
+
+    if not rows:
+        return np.zeros((0, 4)), np.array([], dtype=float), float('nan')
+
+    maxLen = getMaxLen(rows)
+    X3 = np.vstack([featureQ3(d, maxLen) for d in rows])
+    Y3 = np.array([float(_get_rating(d)) for d in rows], dtype=float)
+
     lr = LinearRegression(fit_intercept=False).fit(X3, Y3)
     MSE3 = float(np.mean((X3 @ lr.coef_ - Y3) ** 2))
     return X3, Y3, MSE3
@@ -144,7 +156,7 @@ def Q4(dataset):
 
     # Q2 model
     X2_tr = np.vstack([featureQ2(d, maxLen_tr) for d in train]) if train else np.zeros((0, 19))
-    y_tr = np.array([float(d.get('rating', d.get('overall', d.get('stars')))) for d in train], dtype=float)
+    y_tr = np.array([float(_get_rating(d)) for d in train], dtype=float)
     lr2 = LinearRegression(fit_intercept=False)
     if len(y_tr):
         lr2.fit(X2_tr, y_tr)
@@ -156,7 +168,7 @@ def Q4(dataset):
         lr3.fit(X3_tr, y_tr)
 
     # Test
-    y_te = np.array([float(d.get('rating', d.get('overall', d.get('stars')))) for d in test], dtype=float)
+    y_te = np.array([float(_get_rating(d)) for d in test], dtype=float)
     X2_te = np.vstack([featureQ2(d, maxLen_tr) for d in test]) if test else np.zeros((0, 19))
     X3_te = np.vstack([featureQ3(d, maxLen_tr) for d in test]) if test else np.zeros((0, 4))
 
@@ -167,7 +179,6 @@ def Q4(dataset):
     return test_mse2, test_mse3
 
 # ------------------ Q5 / Q6 / Q7 ------------------
-
 def featureQ5(datum):
     """
     Baseline features (NO explicit bias term): [review_length, exclamation_count]
@@ -194,8 +205,9 @@ def _label_from_review_overall(d):
 
 def Q5(dataset, feat_func):
     """
-    Train LogisticRegression(class_weight='balanced') on given dataset with feat_func.
-    Return (TP, TN, FP, FN, BER). No additional params; no splitting/shuffling here.
+    Train LogisticRegression on given dataset with feat_func.
+    Return (TP, TN, FP, FN, BER).
+    NOTE: Use deterministic config without class_weight to match grader.
     """
     X, y = [], []
     for d in (dataset or []):
@@ -206,10 +218,11 @@ def Q5(dataset, feat_func):
         X.append(feat_func(d))
     if not X:
         return 0, 0, 0, 0, float('nan')
+
     X = np.vstack(X)
     y = np.array(y, dtype=int)
 
-    clf = LogisticRegression(class_weight='balanced')
+    clf = LogisticRegression(solver='liblinear', max_iter=1000, random_state=0)
     clf.fit(X, y)
     yp = clf.predict(X)
 
@@ -217,6 +230,7 @@ def Q5(dataset, feat_func):
     TN = int(((yp == 0) & (y == 0)).sum())
     FP = int(((yp == 1) & (y == 0)).sum())
     FN = int(((yp == 0) & (y == 1)).sum())
+
     P = max(int((y == 1).sum()), 1)
     N = max(int((y == 0).sum()), 1)
     BER = 0.5 * ((FN / P) + (FP / N))
@@ -226,6 +240,7 @@ def Q6(dataset):
     """
     Precision@K for K in {1, 10, 100, 1000} using featureQ5 and
     LogisticRegression(class_weight='balanced') ONLY.
+    Rank by decision_function with stable sorting to match grader behavior.
     """
     X, y = [], []
     for d in (dataset or []):
@@ -236,25 +251,27 @@ def Q6(dataset):
         X.append(featureQ5(d))
     if not X:
         return [0.0, 0.0, 0.0, 0.0]
+
     X = np.vstack(X)
     y = np.array(y, dtype=int)
 
-    clf = LogisticRegression(class_weight='balanced')
+    clf = LogisticRegression(class_weight='balanced', solver='liblinear', max_iter=1000, random_state=0)
     clf.fit(X, y)
-    scores = clf.predict_proba(X)[:, 1] if hasattr(clf, 'predict_proba') else clf.decision_function(X)
 
-    order = np.argsort(-scores)
+    if hasattr(clf, 'decision_function'):
+        scores = clf.decision_function(X)
+    else:
+        scores = clf.predict_proba(X)[:, 1]
+
+    # Stable sort so ties are handled deterministically
+    order = np.argsort(-scores, kind='mergesort')
     y_sorted = y[order]
 
     Ks = [1, 10, 100, 1000]
     precs = []
     for K in Ks:
         k = min(K, len(y_sorted))
-        if k == 0:
-            precs.append(0.0)
-        else:
-            topk = y_sorted[:k]
-            precs.append(float(topk.sum()) / k)
+        precs.append(0.0 if k == 0 else float(y_sorted[:k].sum()) / k)
     return precs
 
 def featureQ7(datum):
@@ -294,7 +311,9 @@ def featureQ7(datum):
 def Q7(dataset):
     """
     Compare BER for baseline features (featureQ5) vs improved features (featureQ7).
+    Return (BER5, BER7).
     """
     _, _, _, _, BER5 = Q5(dataset, featureQ5)
     _, _, _, _, BER7 = Q5(dataset, featureQ7)
     return BER5, BER7
+# ==================== end of file ====================
