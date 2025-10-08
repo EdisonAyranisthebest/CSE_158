@@ -29,16 +29,10 @@ def _get_rating(d):
     return None
 
 def _get_day_month_weekday(d):
-    """Prefer timeStruct (matches dataset weekday/month). Return (day, month, weekday)."""
-    ts = d.get("review/timeStruct")
-    if isinstance(ts, dict):
-        try:
-            day = int(ts.get("mday", 0) or 0)
-            mon = int(ts.get("mon", 0) or 0)
-            wdy = int(ts.get("wday", 0) or 0)  # 0=Mon..6=Sun
-            return day, mon, wdy
-        except Exception:
-            pass
+    """
+    Return (day, month, weekday) with weekday 0..6 (Mon..Sun) and month 1..12.
+    Prefer UNIX timestamp (consistent with Python), else fall back to timeStruct.
+    """
     for k in ("review/timeUnix", "review/time"):
         if k in d and d[k] is not None:
             try:
@@ -46,6 +40,15 @@ def _get_day_month_weekday(d):
                 return dt.day, dt.month, dt.weekday()
             except Exception:
                 pass
+    ts = d.get("review/timeStruct")
+    if isinstance(ts, dict):
+        try:
+            day = int(ts.get("mday", 0) or 0)
+            mon = int(ts.get("mon", 0) or 0)
+            wdy = int(ts.get("wday", 0) or 0)  # 0=Mon..6=Sun in your sample
+            return day, mon, wdy
+        except Exception:
+            pass
     return 0, 0, 0
 
 def getMaxLen(dataset):
@@ -75,26 +78,28 @@ def Q1(dataset):
     return theta.astype(float), mse
 
 # ---------------- Q2 (19-dim) ----------------
-# EXACT layout: [1.0, normalized_length] + weekday one-hot (Mon..Sat; drop Sun) + month one-hot (Feb..Dec; drop Jan)
+# [1.0, normalized_length] + weekday one-hot (Tue..Sun; drop Mon) + month one-hot (Jan..Nov; drop Dec)
 def featureQ2(datum, maxLen):
     s = _get_text(datum)
     norm_len = (len(s) / maxLen) if maxLen > 0 else 0.0
     _, month_num, weekday_num = _get_day_month_weekday(datum)
 
-    # Weekday: keep 0..5 (Mon..Sat), drop 6 (Sun)
+    # Weekday: keep 1..6 (Tue..Sun), drop 0 (Mon)  -> 6 dims
     w = np.zeros(6, dtype=float)
-    if 0 <= weekday_num <= 5:
-        w[weekday_num] = 1.0
+    wi = int(weekday_num)
+    if 1 <= wi <= 6:
+        w[wi - 1] = 1.0
 
-    # Month: keep 2..12 (Feb..Dec), drop 1 (Jan)
+    # Month: keep 1..11 (Jan..Nov), drop 12 (Dec) -> 11 dims
     m = np.zeros(11, dtype=float)
-    if 2 <= month_num <= 12:
-        m[month_num - 2] = 1.0
+    mi = int(month_num)
+    if 1 <= mi <= 11:
+        m[mi - 1] = 1.0
 
-    return np.concatenate([[1.0, norm_len], w, m]).astype(float)  # length 19
+    return np.concatenate([[1.0, norm_len], w, m]).astype(float)  # 19 dims total
 
 def Q2(dataset):
-    # normalize by max over the WHOLE dataset (matches typical reference)
+    # Normalize length by global max over the whole dataset (matches many refs)
     maxLen_all = getMaxLen(dataset)
     used = [d for d in (dataset or []) if _get_rating(d) is not None]
     X, Y = [], []
@@ -109,7 +114,7 @@ def Q2(dataset):
     return X2, Y2, MSE2
 
 # ---------------- Q3 (4-dim) ----------------
-# EXACT layout: [1.0, normalized length, weekday_number (0..6), month_number (1..12)]
+# [1.0, normalized_length, weekday_number (0..6), month_number (1..12)]
 def featureQ3(datum, maxLen):
     s = _get_text(datum)
     norm_len = (len(s) / maxLen) if maxLen > 0 else 0.0
@@ -117,7 +122,7 @@ def featureQ3(datum, maxLen):
     return np.array([1.0, float(norm_len), float(int(weekday_num)), float(int(month_num))], dtype=float)
 
 def Q3(dataset):
-    # Use the same normalization base as Q2 for consistency
+    # Use same normalization base as Q2 for consistency
     maxLen_all = getMaxLen(dataset)
     used = [d for d in (dataset or []) if _get_rating(d) is not None]
     X, Y = [], []
@@ -158,7 +163,7 @@ def featureQ5(datum):
 
 def _label_ge4(d):
     r = _get_rating(d)
-    if r is None:
+    if r is None: 
         return None
     return 1 if r >= 4.0 else 0
 
@@ -191,7 +196,8 @@ def Q5(dataset, feat_func):
 
 def Q6(dataset):
     """
-    Return LIST in this exact order: [P@10, P@50, P@100, P@200].
+    Return LIST in this exact order: [P@1, P@10, P@100, P@1000].
+    Rank by decision function (fallback to predict_proba).
     """
     Xrows, yrows = [], []
     for d in (dataset or []):
@@ -207,13 +213,18 @@ def Q6(dataset):
 
     clf = LogisticRegression(max_iter=2000, class_weight='balanced', fit_intercept=False)
     clf.fit(X, y)
-    scores = clf.predict_proba(X)[:, 1]
+
+    # Ranking score: decision_function preferred
+    if hasattr(clf, "decision_function"):
+        scores = clf.decision_function(X)
+    else:
+        scores = clf.predict_proba(X)[:, 1]
 
     order = np.argsort(-scores)
     yt_sorted = y[order]
 
     out = []
-    for K in [10, 50, 100, 200]:
+    for K in [1, 10, 100, 1000]:
         k = min(K, len(yt_sorted))
         out.append(float('nan') if k == 0 else float(yt_sorted[:k].mean()))
     return out
