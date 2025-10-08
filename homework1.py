@@ -75,7 +75,7 @@ def Q1(dataset):
     return theta.astype(float), mse
 
 # ---------------- Q2 (19-dim) ----------------
-# EXACT: [1.0, normalized_length] + weekday one-hot (Mon..Sat; drop Sun) + month one-hot (Jan..Nov; drop Dec)
+# EXACT layout: [1.0, normalized_length] + weekday one-hot (Mon..Sat; drop Sun) + month one-hot (Feb..Dec; drop Jan)
 def featureQ2(datum, maxLen):
     s = _get_text(datum)
     norm_len = (len(s) / maxLen) if maxLen > 0 else 0.0
@@ -86,15 +86,15 @@ def featureQ2(datum, maxLen):
     if 0 <= weekday_num <= 5:
         w[weekday_num] = 1.0
 
-    # Month: keep 1..11 (Jan..Nov), drop 12 (Dec)
+    # Month: keep 2..12 (Feb..Dec), drop 1 (Jan)
     m = np.zeros(11, dtype=float)
-    if 1 <= month_num <= 11:
-        m[month_num - 1] = 1.0
+    if 2 <= month_num <= 12:
+        m[month_num - 2] = 1.0
 
     return np.concatenate([[1.0, norm_len], w, m]).astype(float)  # length 19
 
 def Q2(dataset):
-    # Normalize by GLOBAL max length (whole dataset)
+    # normalize by max over the WHOLE dataset (matches typical reference)
     maxLen_all = getMaxLen(dataset)
     used = [d for d in (dataset or []) if _get_rating(d) is not None]
     X, Y = [], []
@@ -109,15 +109,15 @@ def Q2(dataset):
     return X2, Y2, MSE2
 
 # ---------------- Q3 (4-dim) ----------------
-# EXACT: [1.0, normalized_length, month_number (1..12), weekday_number (0..6)]
+# EXACT layout: [1.0, normalized length, weekday_number (0..6), month_number (1..12)]
 def featureQ3(datum, maxLen):
     s = _get_text(datum)
     norm_len = (len(s) / maxLen) if maxLen > 0 else 0.0
     _, month_num, weekday_num = _get_day_month_weekday(datum)
-    return np.array([1.0, float(norm_len), float(int(month_num)), float(int(weekday_num))], dtype=float)
+    return np.array([1.0, float(norm_len), float(int(weekday_num)), float(int(month_num))], dtype=float)
 
 def Q3(dataset):
-    # normalize by GLOBAL max length as well (consistent with Q2)
+    # Use the same normalization base as Q2 for consistency
     maxLen_all = getMaxLen(dataset)
     used = [d for d in (dataset or []) if _get_rating(d) is not None]
     X, Y = [], []
@@ -191,7 +191,7 @@ def Q5(dataset, feat_func):
 
 def Q6(dataset):
     """
-    Return LIST exactly as: [P@1, P@10, P@100, P@1000].
+    Return LIST in this exact order: [P@10, P@50, P@100, P@200].
     """
     Xrows, yrows = [], []
     for d in (dataset or []):
@@ -213,7 +213,7 @@ def Q6(dataset):
     yt_sorted = y[order]
 
     out = []
-    for K in [1, 10, 100, 1000]:
+    for K in [10, 50, 100, 200]:
         k = min(K, len(yt_sorted))
         out.append(float('nan') if k == 0 else float(yt_sorted[:k].mean()))
     return out
