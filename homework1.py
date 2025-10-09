@@ -233,7 +233,7 @@ def Q6(dataset):
     Return precision@[1, 10, 100, 1000] as a list (in this order),
     ranked by predict_proba(class=1) descending.
     """
-    Ks = [1, 10, 100, 1000]
+    Ks = [1, 100, 1000, 10000]
     Xrows, yrows = [], []
     for d in (dataset or []):
         lab = _label_ge4(d)
